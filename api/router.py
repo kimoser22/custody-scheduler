@@ -1,7 +1,8 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from api.dependencies import CurrentUser, SessionDep, get_current_user, require_parent_role
@@ -101,31 +102,22 @@ def create_override(
             assigned_parent=override.assigned_parent.value,
             override_type=override.override_type.value,
             description=override.description,
-            is_active=override.is_active,
+            is_active=True,
         )
     )
-    session.commit()
-    return override
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active override for this date was just created by another request.",
+        ) from None
 
-
-@router.get("/rules")
-def list_rules(session: SessionDep) -> list[BaselineSchedule]:
-    ...
-
-
-@router.post("/rules")
-def create_rule(rule: BaselineSchedule, session: SessionDep) -> BaselineSchedule:
-    ...
-
-
-@router.get("/holidays")
-def list_holidays(session: SessionDep) -> list[ScheduleOverride]:
-    ...
-
-
-@router.post("/holidays")
-def create_holiday(
-    holiday: ScheduleOverride,
-    session: SessionDep,
-) -> ScheduleOverride:
-    ...
+    return ScheduleOverride(
+        override_date=override.override_date,
+        assigned_parent=override.assigned_parent,
+        override_type=override.override_type,
+        description=override.description,
+        is_active=True,
+    )

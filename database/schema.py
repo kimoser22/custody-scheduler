@@ -1,5 +1,6 @@
 from datetime import date
 
+from sqlalchemy import Index, text
 from sqlmodel import Field, SQLModel
 
 
@@ -29,6 +30,15 @@ class BaselineTable(SQLModel, table=True):
 
 class OverrideTable(SQLModel, table=True):
     __tablename__ = "overrides"
+    __table_args__ = (
+        Index(
+            "ix_overrides_one_active_per_date",
+            "family_id",
+            "override_date",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     family_id: int = Field(foreign_key="family_links.id")

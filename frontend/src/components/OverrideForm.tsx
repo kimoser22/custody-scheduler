@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import type { CreateOverride } from "@/lib/api/schedule";
-import type { ParentRole, ScheduleOverride } from "@/lib/types";
+import type { OverrideType, ParentRole } from "@/lib/types";
 import { PARENT_A, PARENT_B } from "@/lib/types";
 
 interface OverrideFormProps {
@@ -12,12 +12,7 @@ interface OverrideFormProps {
   onSuccess?: () => void;
 }
 
-const DEFAULT_OVERRIDE: Omit<ScheduleOverride, "override_date"> = {
-  assigned_parent: PARENT_A,
-  override_type: "Holiday",
-  description: "",
-  is_active: true,
-};
+const OVERRIDE_TYPES: OverrideType[] = ["Holiday", "Mutual Swap", "Emergency"];
 
 export function OverrideForm({
   initialDate,
@@ -25,6 +20,7 @@ export function OverrideForm({
   onSuccess,
 }: OverrideFormProps) {
   const [assignedParent, setAssignedParent] = useState<ParentRole>(PARENT_A);
+  const [overrideType, setOverrideType] = useState<OverrideType>("Holiday");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,7 +33,7 @@ export function OverrideForm({
     const result = await createOverride({
       override_date: initialDate,
       assigned_parent: assignedParent,
-      override_type: "Holiday",
+      override_type: overrideType,
       description,
       is_active: true,
     });
@@ -65,6 +61,21 @@ export function OverrideForm({
         >
           <option value={PARENT_A}>{PARENT_A}</option>
           <option value={PARENT_B}>{PARENT_B}</option>
+        </select>
+      </label>
+      <label className="block text-sm">
+        Override type
+        <select
+          aria-label="Override type"
+          value={overrideType}
+          onChange={(event) => setOverrideType(event.target.value as OverrideType)}
+          className="mt-1 block w-full rounded border px-2 py-1"
+        >
+          {OVERRIDE_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
         </select>
       </label>
       <label className="block text-sm">
