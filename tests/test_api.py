@@ -40,6 +40,10 @@ def test_viewer_can_read_schedule(
     )
 
     assert response.status_code == 200
+    days = response.json()
+    assert len(days) == 14
+    assert days[0]["current_date"] == "2026-01-01"
+    assert days[-1]["current_date"] == "2026-01-14"
 
 
 def test_viewer_blocked_from_writing(
@@ -63,3 +67,32 @@ def test_parent_can_write_override(
     response = client_fixture.post("/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD)
 
     assert response.status_code == 200
+
+
+def test_parent_override_persists_on_schedule(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+
+    create_response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+    assert create_response.status_code == 200
+
+    schedule_response = client_fixture.get(
+        "/api/v1/schedule/?start_date=2026-01-01&end_date=2026-01-31"
+    )
+    assert schedule_response.status_code == 200
+
+    overridden_day = next(
+        day
+        for day in schedule_response.json()
+        if day["current_date"] == OVERRIDE_PAYLOAD["override_date"]
+    )
+    assert overridden_day["is_overridden"] is True
+    assert overridden_day["final_parent"] == OVERRIDE_PAYLOAD["assigned_parent"]
+    assert (
+        overridden_day["override_details"]["description"]
+        == OVERRIDE_PAYLOAD["description"]
+    )

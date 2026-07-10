@@ -13,6 +13,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 class CurrentUser(BaseModel):
     id: int
     role: str
+    family_id: int = 1
 
 
 async def get_token(authorization: str | None = Header(default=None)) -> str:
@@ -24,10 +25,18 @@ async def get_token(authorization: str | None = Header(default=None)) -> str:
     return authorization
 
 
+def _role_from_token(token: str) -> str:
+    if token.startswith("parent:"):
+        return "Parent"
+    return "Viewer"
+
+
 async def get_current_user(
     token: Annotated[str, Depends(get_token)],
 ) -> CurrentUser:
-    return CurrentUser(id=0, role="Viewer")
+    role = _role_from_token(token)
+    user_id = 1 if role == "Parent" else 2
+    return CurrentUser(id=user_id, role=role)
 
 
 async def require_parent_role(

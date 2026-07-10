@@ -2,17 +2,19 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
 from api.dependencies import get_current_user, get_session
 from database import schema  # noqa: F401 — register ORM tables on metadata
-from database.schema import UserTable
+from database.schema import FamilyLink, UserTable
 from main import app
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
 )
 
 
@@ -20,6 +22,8 @@ engine = create_engine(
 def _session_fixture() -> Generator[Session, None, None]:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        session.add(FamilyLink(id=1, family_name="Test Family"))
+        session.commit()
         yield session
     SQLModel.metadata.drop_all(engine)
 
