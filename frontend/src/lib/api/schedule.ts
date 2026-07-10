@@ -12,3 +12,10 @@ export type FetchSchedule = (
 export type CreateOverride = (
   override: ScheduleOverride,
 ) => Promise<{ ok: true; data: ScheduleOverride } | { ok: false; status: number; detail?: string }>;
+
+export type FetchPendingOverrides = () => Promise<ScheduleOverride[]>;
+
+export type DecideOverride = (
+  overrideId: number,
+  approve: boolean,
+) => Promise<{ ok: true; data: ScheduleOverride } | { ok: false; status: number; detail?: string }>;

@@ -21,42 +21,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/rules": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Rules */
-        get: operations["list_rules_api_v1_rules_get"];
-        put?: never;
-        /** Create Rule */
-        post: operations["create_rule_api_v1_rules_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/holidays": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Holidays */
-        get: operations["list_holidays_api_v1_holidays_get"];
-        put?: never;
-        /** Create Holiday */
-        post: operations["create_holiday_api_v1_holidays_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/schedule/": {
         parameters: {
             query?: never;
@@ -66,6 +30,23 @@ export interface paths {
         };
         /** Get Schedule */
         get: operations["get_schedule_api_v1_schedule__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/overrides/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Pending Overrides */
+        get: operations["list_pending_overrides_api_v1_schedule_overrides_pending_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -91,19 +72,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/schedule/overrides/{override_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Override Request */
+        post: operations["decide_override_request_api_v1_schedule_overrides__override_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/overrides/sweep-expired": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sweep Expired Overrides */
+        post: operations["sweep_expired_overrides_api_v1_schedule_overrides_sweep_expired_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** BaselineSchedule */
-        BaselineSchedule: {
-            /**
-             * Epoch Start Date
-             * Format: date
-             */
-            epoch_start_date: string;
-            starting_parent: components["schemas"]["ParentRole"];
-        };
         /** DailyCustodyState */
         DailyCustodyState: {
             /**
@@ -122,6 +128,16 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** OverrideDecisionRequest */
+        OverrideDecisionRequest: {
+            /** Approve */
+            approve: boolean;
+        };
+        /**
+         * OverrideStatus
+         * @enum {string}
+         */
+        OverrideStatus: "Pending" | "Approved" | "Rejected" | "Expired";
         /**
          * OverrideType
          * @enum {string}
@@ -134,6 +150,8 @@ export interface components {
         ParentRole: "Parent A" | "Parent B";
         /** ScheduleOverride */
         ScheduleOverride: {
+            /** Id */
+            id?: number | null;
             /**
              * Override Date
              * Format: date
@@ -148,6 +166,12 @@ export interface components {
              * @default true
              */
             is_active: boolean;
+            /** @default Approved */
+            status: components["schemas"]["OverrideStatus"];
+            /** Expires At */
+            expires_at?: string | null;
+            /** Requested By User Id */
+            requested_by_user_id?: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -193,112 +217,6 @@ export interface operations {
             };
         };
     };
-    list_rules_api_v1_rules_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BaselineSchedule"][];
-                };
-            };
-        };
-    };
-    create_rule_api_v1_rules_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BaselineSchedule"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BaselineSchedule"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_holidays_api_v1_holidays_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduleOverride"][];
-                };
-            };
-        };
-    };
-    create_holiday_api_v1_holidays_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScheduleOverride"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScheduleOverride"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_schedule_api_v1_schedule__get: {
         parameters: {
             query: {
@@ -320,6 +238,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DailyCustodyState"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending_overrides_api_v1_schedule_overrides_pending_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOverride"][];
                 };
             };
             /** @description Validation Error */
@@ -355,6 +304,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleOverride"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_override_request_api_v1_schedule_overrides__override_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                override_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOverride"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sweep_expired_overrides_api_v1_schedule_overrides_sweep_expired_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Validation Error */

@@ -47,3 +47,8 @@ def mock_parent() -> UserTable:
 @pytest.fixture
 def mock_viewer() -> UserTable:
     return UserTable(id=2, family_id=1, role="Viewer")
+
+
+@pytest.fixture
+def mock_other_parent() -> UserTable:
+    return UserTable(id=3, family_id=1, role="Parent")

@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from core.models import (
     BaselineSchedule,
     DailyCustodyState,
+    OverrideStatus,
     ParentRole,
     ScheduleOverride,
 )
@@ -54,7 +55,9 @@ def calculate_schedule(
         matching_overrides = [
             override
             for override in overrides
-            if override.is_active and override.override_date == current
+            if override.is_active
+            and override.status == OverrideStatus.APPROVED
+            and override.override_date == current
         ]
         override = matching_overrides[-1] if matching_overrides else None
 

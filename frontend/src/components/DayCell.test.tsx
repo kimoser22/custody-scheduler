@@ -37,6 +37,7 @@ describe("DayCell", () => {
             override_type: "Holiday",
             description: "Holiday",
             is_active: true,
+            status: "Approved",
           },
         }}
       />,

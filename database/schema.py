@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import Index, text
 from sqlmodel import Field, SQLModel
@@ -46,4 +46,9 @@ class OverrideTable(SQLModel, table=True):
     assigned_parent: str
     override_type: str
     description: str
-    is_active: bool = True
+    is_active: bool = False
+    status: str = "Pending"
+    requested_by_user_id: int
+    decided_by_user_id: int | None = None
+    decided_at: datetime | None = None
+    expires_at: datetime

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -15,6 +15,13 @@ class OverrideType(StrEnum):
     EMERGENCY = "Emergency"
 
 
+class OverrideStatus(StrEnum):
+    PENDING = "Pending"
+    APPROVED = "Approved"
+    REJECTED = "Rejected"
+    EXPIRED = "Expired"
+
+
 class BaselineSchedule(BaseModel):
     model_config = {"frozen": True}
 
@@ -25,11 +32,15 @@ class BaselineSchedule(BaseModel):
 class ScheduleOverride(BaseModel):
     model_config = {"frozen": True}
 
+    id: int | None = None
     override_date: date
     assigned_parent: ParentRole
     override_type: OverrideType
     description: str
     is_active: bool = True
+    status: OverrideStatus = OverrideStatus.APPROVED
+    expires_at: datetime | None = None
+    requested_by_user_id: int | None = None
 
 
 class DailyCustodyState(BaseModel):
@@ -40,3 +51,7 @@ class DailyCustodyState(BaseModel):
     final_parent: ParentRole
     is_overridden: bool
     override_details: ScheduleOverride | None = None
+
+
+class OverrideDecisionRequest(BaseModel):
+    approve: bool

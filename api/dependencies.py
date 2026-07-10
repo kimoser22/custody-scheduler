@@ -31,11 +31,21 @@ def _role_from_token(token: str) -> str:
     return "Viewer"
 
 
+_PARENT_TOKEN_IDS = {"dev": 1, "a": 101, "b": 102}
+
+
+def _user_id_from_token(token: str, role: str) -> int:
+    if role != "Parent":
+        return 2
+    suffix = token.split(":", 1)[1] if ":" in token else "dev"
+    return _PARENT_TOKEN_IDS.get(suffix, 1)
+
+
 async def get_current_user(
     token: Annotated[str, Depends(get_token)],
 ) -> CurrentUser:
     role = _role_from_token(token)
-    user_id = 1 if role == "Parent" else 2
+    user_id = _user_id_from_token(token, role)
     return CurrentUser(id=user_id, role=role)
 
 

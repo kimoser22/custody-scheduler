@@ -5,8 +5,13 @@ import { useMemo, useState } from "react";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { DevAuthBar } from "@/components/DevAuthBar";
 import { OverrideForm } from "@/components/OverrideForm";
+import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
-import { createOverrideRequest } from "@/lib/api/overrides";
+import {
+  createOverrideRequest,
+  decideOverrideRequest,
+  fetchPendingOverridesRequest,
+} from "@/lib/api/overrides";
 import { getAuthToken } from "@/lib/auth";
 import type { DailyCustodyState } from "@/lib/types";
 
@@ -35,6 +40,7 @@ export default function SchedulePage() {
     authToken,
   });
   const [selectedDay, setSelectedDay] = useState<DailyCustodyState | null>(null);
+  const [pendingListVersion, setPendingListVersion] = useState(0);
 
   function handleAuthChange() {
     setAuthToken(getAuthToken());
@@ -79,7 +85,19 @@ export default function SchedulePage() {
             onSuccess={() => {
               setSelectedDay(null);
               void refetch();
+              setPendingListVersion((version) => version + 1);
             }}
+          />
+        </div>
+      ) : null}
+
+      {authToken ? (
+        <div className="mt-6">
+          <PendingOverrides
+            key={`${authToken}-${pendingListVersion}`}
+            fetchPendingOverrides={fetchPendingOverridesRequest}
+            decideOverride={decideOverrideRequest}
+            onDecided={() => void refetch()}
           />
         </div>
       ) : null}

@@ -27,122 +27,6 @@
         }
       }
     },
-    "/api/v1/rules": {
-      "get": {
-        "summary": "List Rules",
-        "operationId": "list_rules_api_v1_rules_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/BaselineSchedule"
-                  },
-                  "type": "array",
-                  "title": "Response List Rules Api V1 Rules Get"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Create Rule",
-        "operationId": "create_rule_api_v1_rules_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BaselineSchedule"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BaselineSchedule"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/holidays": {
-      "get": {
-        "summary": "List Holidays",
-        "operationId": "list_holidays_api_v1_holidays_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ScheduleOverride"
-                  },
-                  "type": "array",
-                  "title": "Response List Holidays Api V1 Holidays Get"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Create Holiday",
-        "operationId": "create_holiday_api_v1_holidays_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScheduleOverride"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleOverride"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/schedule/": {
       "get": {
         "summary": "Get Schedule",
@@ -196,6 +80,56 @@
                     "$ref": "#/components/schemas/DailyCustodyState"
                   },
                   "title": "Response Get Schedule Api V1 Schedule  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schedule/overrides/pending": {
+      "get": {
+        "summary": "List Pending Overrides",
+        "operationId": "list_pending_overrides_api_v1_schedule_overrides_pending_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScheduleOverride"
+                  },
+                  "title": "Response List Pending Overrides Api V1 Schedule Overrides Pending Get"
                 }
               }
             }
@@ -268,28 +202,125 @@
           }
         }
       }
+    },
+    "/api/v1/schedule/overrides/{override_id}/decision": {
+      "post": {
+        "summary": "Decide Override Request",
+        "operationId": "decide_override_request_api_v1_schedule_overrides__override_id__decision_post",
+        "parameters": [
+          {
+            "name": "override_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Override Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOverride"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schedule/overrides/sweep-expired": {
+      "post": {
+        "summary": "Sweep Expired Overrides",
+        "operationId": "sweep_expired_overrides_api_v1_schedule_overrides_sweep_expired_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Sweep Expired Overrides Api V1 Schedule Overrides Sweep Expired Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "BaselineSchedule": {
-        "properties": {
-          "epoch_start_date": {
-            "type": "string",
-            "format": "date",
-            "title": "Epoch Start Date"
-          },
-          "starting_parent": {
-            "$ref": "#/components/schemas/ParentRole"
-          }
-        },
-        "type": "object",
-        "required": [
-          "epoch_start_date",
-          "starting_parent"
-        ],
-        "title": "BaselineSchedule"
-      },
       "DailyCustodyState": {
         "properties": {
           "current_date": {
@@ -340,6 +371,29 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "OverrideDecisionRequest": {
+        "properties": {
+          "approve": {
+            "type": "boolean",
+            "title": "Approve"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approve"
+        ],
+        "title": "OverrideDecisionRequest"
+      },
+      "OverrideStatus": {
+        "type": "string",
+        "enum": [
+          "Pending",
+          "Approved",
+          "Rejected",
+          "Expired"
+        ],
+        "title": "OverrideStatus"
+      },
       "OverrideType": {
         "type": "string",
         "enum": [
@@ -359,6 +413,17 @@
       },
       "ScheduleOverride": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "override_date": {
             "type": "string",
             "format": "date",
@@ -378,6 +443,33 @@
             "type": "boolean",
             "title": "Is Active",
             "default": true
+          },
+          "status": {
+            "$ref": "#/components/schemas/OverrideStatus",
+            "default": "Approved"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "requested_by_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By User Id"
           }
         },
         "type": "object",

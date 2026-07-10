@@ -35,7 +35,8 @@ export function OverrideForm({
       assigned_parent: assignedParent,
       override_type: overrideType,
       description,
-      is_active: true,
+      is_active: false,
+      status: "Pending",
     });
 
     setIsSubmitting(false);
@@ -50,7 +51,10 @@ export function OverrideForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded border p-4">
-      <h2 className="text-lg font-semibold">Add override for {initialDate}</h2>
+      <h2 className="text-lg font-semibold">Request override for {initialDate}</h2>
+      <p className="text-sm text-slate-600">
+        The other parent will need to approve this before it takes effect.
+      </p>
       <label className="block text-sm">
         Assigned parent
         <select
@@ -93,7 +97,7 @@ export function OverrideForm({
         disabled={isSubmitting}
         className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50"
       >
-        Save override
+        Request override
       </button>
     </form>
   );

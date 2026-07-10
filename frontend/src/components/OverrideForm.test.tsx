@@ -22,7 +22,7 @@ describe("OverrideForm", () => {
     );
 
     await user.type(screen.getByLabelText("Description"), "Holiday");
-    await user.click(screen.getByRole("button", { name: "Save override" }));
+    await user.click(screen.getByRole("button", { name: "Request override" }));
 
     await waitFor(() => {
       expect(
@@ -48,7 +48,7 @@ describe("OverrideForm", () => {
     );
 
     await user.type(screen.getByLabelText("Description"), "Holiday");
-    await user.click(screen.getByRole("button", { name: "Save override" }));
+    await user.click(screen.getByRole("button", { name: "Request override" }));
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
