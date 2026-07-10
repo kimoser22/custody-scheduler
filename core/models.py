@@ -1,32 +1,42 @@
 from datetime import date
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
-class Parent(StrEnum):
-    PARENT_A = "parent_a"
-    PARENT_B = "parent_b"
+class ParentRole(StrEnum):
+    PARENT_A = "Parent A"
+    PARENT_B = "Parent B"
 
 
-class CustodyDay(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    date: date
-    parent: Parent
-
-
-class ScheduleRule(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    start_date: date
-    anchor_parent: Parent
-    pattern_name: str = "2-2-3"
+class OverrideType(StrEnum):
+    HOLIDAY = "Holiday"
+    MUTUAL_SWAP = "Mutual Swap"
+    EMERGENCY = "Emergency"
 
 
-class HolidayOverride(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class BaselineSchedule(BaseModel):
+    model_config = {"frozen": True}
 
-    date: date
-    parent: Parent
-    reason: str | None = None
+    epoch_start_date: date
+    starting_parent: ParentRole
+
+
+class ScheduleOverride(BaseModel):
+    model_config = {"frozen": True}
+
+    override_date: date
+    assigned_parent: ParentRole
+    override_type: OverrideType
+    description: str
+    is_active: bool = True
+
+
+class DailyCustodyState(BaseModel):
+    model_config = {"frozen": True}
+
+    current_date: date
+    baseline_parent: ParentRole
+    final_parent: ParentRole
+    is_overridden: bool
+    override_details: ScheduleOverride | None = None

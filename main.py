@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlmodel import SQLModel
 
-from api.router import router
+from api.router import router, schedule_router
 from database.connection import engine
 from database import schema  # noqa: F401 — register table models
 
@@ -22,3 +22,4 @@ app = FastAPI(
 )
 
 app.include_router(router)
+app.include_router(schedule_router)

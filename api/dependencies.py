@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -15,11 +15,30 @@ class CurrentUser(BaseModel):
     role: str
 
 
-async def get_current_user() -> CurrentUser:
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
-    )
+async def get_token(authorization: str | None = Header(default=None)) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    return authorization
+
+
+async def get_current_user(
+    token: Annotated[str, Depends(get_token)],
+) -> CurrentUser:
+    return CurrentUser(id=0, role="Viewer")
+
+
+async def require_parent_role(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    if current_user.role != "Parent":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Action restricted to Parent roles only.",
+        )
+    return current_user
 
 
 def require_role(role: str) -> Callable[..., CurrentUser]:
