@@ -30,6 +30,19 @@ async def _noop_lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_twilio_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """main.py's load_dotenv() runs at import time and pulls whatever real
+    Twilio credentials exist in the developer's local .env into os.environ
+    for the whole process — including pytest. Tests must not depend on (or
+    be broken by) those real credentials: strip them for every test so
+    signature verification and EnvTwilioSmsGateway behave the same
+    regardless of what's configured locally."""
+    monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
+    monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWILIO_FROM_NUMBER", raising=False)
+
+
 @pytest.fixture(name="session_fixture")
 def _session_fixture() -> Generator[Session, None, None]:
     SQLModel.metadata.create_all(engine)

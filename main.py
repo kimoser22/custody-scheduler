@@ -1,16 +1,20 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.exc import OperationalError
-from sqlmodel import Session, SQLModel, select
+from dotenv import load_dotenv
 
-from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router
-from api.twilio_webhook import twilio_router
-from database.connection import engine
-from database import schema  # noqa: F401 — register table models
-from database.schema import BaselineTable, FamilyLink, UserTable
+load_dotenv()  # must run before any module reads TWILIO_* env vars
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
+from sqlmodel import Session, SQLModel, select  # noqa: E402
+
+from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
+from api.twilio_webhook import twilio_router  # noqa: E402
+from database.connection import engine  # noqa: E402
+from database import schema  # noqa: E402, F401 — register table models
+from database.schema import BaselineTable, FamilyLink, UserTable  # noqa: E402
 
 
 def ensure_default_seed_data(session: Session) -> None:
