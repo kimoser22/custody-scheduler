@@ -17,6 +17,8 @@ class UserTable(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     family_id: int = Field(foreign_key="family_links.id")
     role: str
+    phone: str | None = None
+    custody_label: str | None = None
 
 
 class BaselineTable(SQLModel, table=True):
@@ -52,3 +54,22 @@ class OverrideTable(SQLModel, table=True):
     decided_by_user_id: int | None = None
     decided_at: datetime | None = None
     expires_at: datetime
+
+
+class AuditLogTable(SQLModel, table=True):
+    __tablename__ = "audit_logs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    timestamp: datetime
+    family_id: int = Field(foreign_key="family_links.id")
+    actor_role: str
+    action_type: str
+    description: str
+    previous_state_id: int | None = None
+
+
+class TwilioIdempotencyTable(SQLModel, table=True):
+    __tablename__ = "twilio_idempotency"
+
+    id: int | None = Field(default=None, primary_key=True)
+    message_sid: str = Field(unique=True, index=True)

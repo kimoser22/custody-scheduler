@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { DevAuthBar } from "@/components/DevAuthBar";
@@ -12,28 +12,18 @@ import {
   decideOverrideRequest,
   fetchPendingOverridesRequest,
 } from "@/lib/api/overrides";
-import { getAuthToken } from "@/lib/auth";
+import {
+  canRequestOverride,
+  getAuthToken,
+  userIdFromToken,
+} from "@/lib/auth";
+import { getMonthRange, shiftMonth } from "@/lib/calendar";
 import type { DailyCustodyState } from "@/lib/types";
 
-function formatLocalDate(value: Date): string {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getMonthRange(reference = new Date()) {
-  const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
-  const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);
-  return {
-    startDate: formatLocalDate(start),
-    endDate: formatLocalDate(end),
-  };
-}
-
 export default function SchedulePage() {
-  const { startDate, endDate } = useMemo(() => getMonthRange(), []);
-  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [monthReference, setMonthReference] = useState(() => new Date());
+  const { startDate, endDate } = getMonthRange(monthReference);
+  const [authToken, setAuthTokenState] = useState<string | null>(null);
   const { days, isLoading, error, refetch } = useSchedule({
     startDate,
     endDate,
@@ -41,17 +31,51 @@ export default function SchedulePage() {
   });
   const [selectedDay, setSelectedDay] = useState<DailyCustodyState | null>(null);
   const [pendingListVersion, setPendingListVersion] = useState(0);
+  const currentUserId = userIdFromToken(authToken);
+  const showOverrideForm = selectedDay != null && canRequestOverride(authToken);
 
   function handleAuthChange() {
-    setAuthToken(getAuthToken());
+    setAuthTokenState(getAuthToken());
+  }
+
+  function handleDaySelect(day: DailyCustodyState) {
+    if (!canRequestOverride(getAuthToken())) {
+      setSelectedDay(null);
+      return;
+    }
+    setSelectedDay(day);
   }
 
   return (
     <main className="mx-auto max-w-5xl p-6">
       <h1 className="mb-2 text-2xl font-bold">Custody Schedule</h1>
-      <p className="mb-4 text-sm text-slate-600">
-        {startDate} to {endDate}
-      </p>
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+        <button
+          type="button"
+          aria-label="Previous month"
+          className="rounded border px-2 py-1"
+          onClick={() => {
+            setSelectedDay(null);
+            setMonthReference((current) => shiftMonth(current, -1));
+          }}
+        >
+          Previous
+        </button>
+        <p>
+          {startDate} to {endDate}
+        </p>
+        <button
+          type="button"
+          aria-label="Next month"
+          className="rounded border px-2 py-1"
+          onClick={() => {
+            setSelectedDay(null);
+            setMonthReference((current) => shiftMonth(current, 1));
+          }}
+        >
+          Next
+        </button>
+      </div>
 
       <DevAuthBar onAuthChange={handleAuthChange} />
 
@@ -73,11 +97,11 @@ export default function SchedulePage() {
         <CalendarGrid
           days={days}
           monthStartDate={startDate}
-          onDaySelect={setSelectedDay}
+          onDaySelect={handleDaySelect}
         />
       ) : null}
 
-      {selectedDay ? (
+      {showOverrideForm && selectedDay ? (
         <div className="mt-6">
           <OverrideForm
             initialDate={selectedDay.current_date}
@@ -97,6 +121,7 @@ export default function SchedulePage() {
             key={`${authToken}-${pendingListVersion}`}
             fetchPendingOverrides={fetchPendingOverridesRequest}
             decideOverride={decideOverrideRequest}
+            currentUserId={currentUserId}
             onDecided={() => void refetch()}
           />
         </div>

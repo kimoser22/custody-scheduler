@@ -8,12 +8,14 @@ import type { ScheduleOverride } from "@/lib/types";
 interface PendingOverridesProps {
   fetchPendingOverrides: FetchPendingOverrides;
   decideOverride: DecideOverride;
+  currentUserId: number | null;
   onDecided?: () => void;
 }
 
 export function PendingOverrides({
   fetchPendingOverrides,
   decideOverride,
+  currentUserId,
   onDecided,
 }: PendingOverridesProps) {
   const [requests, setRequests] = useState<ScheduleOverride[]>([]);
@@ -82,36 +84,61 @@ export function PendingOverrides({
         <p className="text-sm text-slate-600">No pending override requests.</p>
       ) : (
         <ul className="space-y-2">
-          {requests.map((request) => (
-            <li key={request.id} className="rounded border p-3 text-sm">
-              <div className="font-medium">
-                {request.override_date} &mdash; {request.assigned_parent} (
-                {request.override_type})
-              </div>
-              <div className="text-slate-600">{request.description}</div>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={pendingDecisionId === request.id}
-                  onClick={() => request.id != null && handleDecision(request.id, true)}
-                  className="rounded bg-emerald-600 px-3 py-1 text-white disabled:opacity-50"
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  disabled={pendingDecisionId === request.id}
-                  onClick={() => request.id != null && handleDecision(request.id, false)}
-                  className="rounded bg-red-600 px-3 py-1 text-white disabled:opacity-50"
-                >
-                  Reject
-                </button>
-              </div>
-              {request.id != null && decisionErrors[request.id] ? (
-                <p className="mt-1 text-red-600">{decisionErrors[request.id]}</p>
-              ) : null}
-            </li>
-          ))}
+          {requests.map((request) => {
+            const isOwnRequest =
+              currentUserId != null &&
+              request.requested_by_user_id != null &&
+              request.requested_by_user_id === currentUserId;
+
+            return (
+              <li key={request.id} className="rounded border p-3 text-sm">
+                <div className="font-medium">
+                  {request.override_date} &mdash; {request.assigned_parent} (
+                  {request.override_type})
+                </div>
+                <div className="text-slate-600">{request.description}</div>
+                {request.requested_by_user_id != null ? (
+                  <div className="text-slate-600">
+                    Requested by user {request.requested_by_user_id}
+                  </div>
+                ) : null}
+                {request.expires_at ? (
+                  <div className="text-slate-600">Expires {request.expires_at}</div>
+                ) : null}
+                <div className="mt-2 flex items-center gap-2">
+                  {isOwnRequest ? (
+                    <p className="text-slate-600">Waiting for the other parent</p>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={pendingDecisionId === request.id}
+                        onClick={() =>
+                          request.id != null && handleDecision(request.id, true)
+                        }
+                        className="rounded bg-emerald-600 px-3 py-1 text-white disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pendingDecisionId === request.id}
+                        onClick={() =>
+                          request.id != null && handleDecision(request.id, false)
+                        }
+                        className="rounded bg-red-600 px-3 py-1 text-white disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+                {request.id != null && decisionErrors[request.id] ? (
+                  <p className="mt-1 text-red-600">{decisionErrors[request.id]}</p>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

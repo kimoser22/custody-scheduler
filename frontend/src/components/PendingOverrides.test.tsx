@@ -15,6 +15,7 @@ const PENDING_OVERRIDE: ScheduleOverride = {
   is_active: false,
   status: "Pending",
   requested_by_user_id: 101,
+  expires_at: "2026-01-16T12:00:00",
 };
 
 describe("PendingOverrides", () => {
@@ -27,6 +28,7 @@ describe("PendingOverrides", () => {
       <PendingOverrides
         fetchPendingOverrides={fetchPendingOverrides}
         decideOverride={vi.fn()}
+        currentUserId={102}
       />,
     );
 
@@ -35,6 +37,48 @@ describe("PendingOverrides", () => {
     });
     expect(screen.getByText(/Take the kids to grandma's/)).toBeInTheDocument();
     expect(screen.getByText(/Parent B/)).toBeInTheDocument();
+    expect(screen.getByText(/Requested by user 101/)).toBeInTheDocument();
+    expect(screen.getByText(/Expires 2026-01-16T12:00:00/)).toBeInTheDocument();
+  });
+
+  it("hides Approve and Reject on your own requests", async () => {
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
+      PENDING_OVERRIDE,
+    ]);
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={101}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/2026-01-15/)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for the other parent")).toBeInTheDocument();
+  });
+
+  it("shows Approve and Reject for requests from the other parent", async () => {
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
+      PENDING_OVERRIDE,
+    ]);
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={102}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
 
   it("shows a placeholder when there are no pending requests", async () => {
@@ -44,6 +88,7 @@ describe("PendingOverrides", () => {
       <PendingOverrides
         fetchPendingOverrides={fetchPendingOverrides}
         decideOverride={vi.fn()}
+        currentUserId={102}
       />,
     );
 
@@ -67,6 +112,7 @@ describe("PendingOverrides", () => {
       <PendingOverrides
         fetchPendingOverrides={fetchPendingOverrides}
         decideOverride={decideOverride}
+        currentUserId={102}
       />,
     );
 
@@ -82,21 +128,22 @@ describe("PendingOverrides", () => {
     });
   });
 
-  it("shows the backend's error message when a decision is rejected (e.g. self-approval)", async () => {
+  it("shows the backend's error message when a decision is rejected", async () => {
     const user = userEvent.setup();
     const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
       PENDING_OVERRIDE,
     ]);
     const decideOverride = vi.fn<DecideOverride>(async () => ({
       ok: false,
-      status: 403,
-      detail: "Cannot decide on your own override request.",
+      status: 409,
+      detail: "Override request has already been approved.",
     }));
 
     render(
       <PendingOverrides
         fetchPendingOverrides={fetchPendingOverrides}
         decideOverride={decideOverride}
+        currentUserId={102}
       />,
     );
 
@@ -108,7 +155,7 @@ describe("PendingOverrides", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Cannot decide on your own override request."),
+        screen.getByText("Override request has already been approved."),
       ).toBeInTheDocument();
     });
   });
@@ -128,6 +175,7 @@ describe("PendingOverrides", () => {
       <PendingOverrides
         fetchPendingOverrides={fetchPendingOverrides}
         decideOverride={decideOverride}
+        currentUserId={102}
       />,
     );
 

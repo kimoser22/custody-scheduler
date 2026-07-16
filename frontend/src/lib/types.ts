@@ -1,6 +1,6 @@
 export type ParentRole = "Parent A" | "Parent B";
 export type OverrideType = "Holiday" | "Mutual Swap" | "Emergency";
-export type OverrideStatus = "Pending" | "Approved" | "Rejected" | "Expired";
+export type OverrideStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Expired";
 
 export interface ScheduleOverride {
   id?: number | null;

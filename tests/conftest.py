@@ -1,6 +1,8 @@
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
@@ -16,6 +18,16 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+
+@asynccontextmanager
+async def _noop_lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    """Swapped in for main.lifespan during tests. The real lifespan seeds
+    (and, on schema drift, recreates) database.connection.engine — the actual
+    custody.db file, not this module's in-memory test engine. session_fixture
+    already prepares whatever DB state each test needs, so startup seeding
+    against the real file must never run here."""
+    yield
 
 
 @pytest.fixture(name="session_fixture")
@@ -34,9 +46,14 @@ def _client_fixture(session_fixture: Session) -> Generator[TestClient, None, Non
         yield session_fixture
 
     app.dependency_overrides[get_session] = override_get_session
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides.clear()
+    original_lifespan_context = app.router.lifespan_context
+    app.router.lifespan_context = _noop_lifespan
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.router.lifespan_context = original_lifespan_context
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture

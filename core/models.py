@@ -16,6 +16,7 @@ class OverrideType(StrEnum):
 
 
 class OverrideStatus(StrEnum):
+    DRAFT = "Draft"
     PENDING = "Pending"
     APPROVED = "Approved"
     REJECTED = "Rejected"

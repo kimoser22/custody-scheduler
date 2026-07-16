@@ -17,7 +17,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
-from database.schema import BaselineTable, FamilyLink, OverrideTable
+from database.schema import BaselineTable, OverrideTable
 
 router = APIRouter(prefix="/api/v1")
 schedule_router = APIRouter(prefix="/api/v1/schedule")
@@ -31,8 +31,10 @@ DEFAULT_BASELINE = BaselineSchedule(
 )
 
 
-def _load_baseline(session: Session) -> BaselineSchedule:
-    row = session.exec(select(BaselineTable)).first()
+def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
+    row = session.exec(
+        select(BaselineTable).where(BaselineTable.family_id == family_id)
+    ).first()
     if row is None:
         return DEFAULT_BASELINE
     return BaselineSchedule(
@@ -77,7 +79,7 @@ def get_schedule(
     session: SessionDep,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> list[DailyCustodyState]:
-    baseline = _load_baseline(session)
+    baseline = _load_baseline(session, current_user.family_id)
     overrides = _load_overrides(session, current_user.family_id)
     return calculate_schedule(
         baseline=baseline,
