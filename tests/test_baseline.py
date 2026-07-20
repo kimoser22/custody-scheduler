@@ -103,6 +103,43 @@ def test_ensure_default_seed_data_creates_family_and_baseline(
     assert len(baselines) == 1
 
 
+def test_seed_sets_passcode_hashes_from_env(
+    session_fixture: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Demo passcodes come from env (never committed). A seeded parent whose
+    env passcode is set can then be verified; the value is stored hashed."""
+    from api.passcodes import verify_passcode
+
+    for row in session_fixture.exec(select(UserTable)).all():
+        session_fixture.delete(row)
+    session_fixture.commit()
+
+    monkeypatch.setenv("SEED_PARENT_A_PASSCODE", "alpha-demo")
+
+    ensure_default_seed_data(session_fixture)
+
+    parent_a = session_fixture.get(UserTable, 101)
+    assert parent_a is not None
+    assert parent_a.passcode_hash is not None
+    assert parent_a.passcode_hash != "alpha-demo"  # stored hashed, not plaintext
+    assert verify_passcode("alpha-demo", parent_a.passcode_hash) is True
+
+
+def test_seed_leaves_passcode_unset_when_env_absent(
+    session_fixture: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for row in session_fixture.exec(select(UserTable)).all():
+        session_fixture.delete(row)
+    session_fixture.commit()
+    monkeypatch.delenv("SEED_PARENT_A_PASSCODE", raising=False)
+
+    ensure_default_seed_data(session_fixture)
+
+    parent_a = session_fixture.get(UserTable, 101)
+    assert parent_a is not None
+    assert parent_a.passcode_hash is None  # login disabled until a passcode is set
+
+
 def _isolated_engine():
     return create_engine(
         "sqlite:///:memory:",

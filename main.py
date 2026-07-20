@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlmodel import Session, SQLModel, select  # noqa: E402
 
+from api.auth_router import auth_router  # noqa: E402
+from api.passcodes import hash_passcode  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
 from api.twilio_webhook import twilio_router  # noqa: E402
 from database.connection import engine  # noqa: E402
@@ -29,6 +31,13 @@ def parse_allowed_origins(raw: str | None = None) -> list[str]:
 
 def allow_sqlite_schema_reset() -> bool:
     return os.getenv("ALLOW_SQLITE_SCHEMA_RESET", "") == "1"
+
+
+def _seed_passcode_hash(env_var: str) -> str | None:
+    """Hash a demo passcode supplied via env, or None to leave login disabled.
+    Passcodes are never committed — set SEED_PARENT_*_PASSCODE to enable login."""
+    raw = os.getenv(env_var)
+    return hash_passcode(raw) if raw else None
 
 
 def ensure_default_seed_data(session: Session) -> None:
@@ -63,6 +72,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Parent",
                 phone="+15550001",
                 custody_label="Parent A",
+                passcode_hash=_seed_passcode_hash("SEED_PARENT_A_PASSCODE"),
             )
         )
         session.add(
@@ -72,6 +82,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Parent",
                 phone="+15550002",
                 custody_label="Parent B",
+                passcode_hash=_seed_passcode_hash("SEED_PARENT_B_PASSCODE"),
             )
         )
         session.add(
@@ -81,6 +92,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Viewer",
                 phone=None,
                 custody_label=None,
+                passcode_hash=_seed_passcode_hash("SEED_VIEWER_PASSCODE"),
             )
         )
         session.commit()
@@ -122,6 +134,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(schedule_router)
 app.include_router(twilio_router)

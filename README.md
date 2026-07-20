@@ -6,11 +6,22 @@ Compute-on-read 2-2-3 custody calendar with dual-parent override approvals.
 
 ### API (terminal 1)
 
+The API **fails closed**: `AUTH_SIGNING_SECRET` must be set or every
+authenticated request returns 401. To use the sign-in flow, also set demo
+passcodes (they are hashed at seed time and never committed):
+
 ```powershell
 cd C:\Users\andre\custody-scheduler
 .\.venv\Scripts\Activate.ps1
+$env:AUTH_SIGNING_SECRET = "dev-only-change-me"
+$env:SEED_PARENT_A_PASSCODE = "alpha"
+$env:SEED_PARENT_B_PASSCODE = "bravo"
+$env:SEED_VIEWER_PASSCODE = "look"
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+(Or put these in `.env` — see `.env.example`. Passcodes only seed on a fresh
+DB; delete `custody.db` to re-seed.)
 
 ### Frontend (terminal 2)
 
@@ -21,21 +32,32 @@ npm run dev
 
 Open http://localhost:3000/schedule
 
-## Dev identities
+## Sign in
 
-Use the **Identity** dropdown on the schedule page (or set `Authorization` headers):
+The API trusts only HMAC-signed tokens issued by `POST /api/v1/auth/token` in
+exchange for a valid passcode. On the schedule page, pick an **Identity**, enter
+that identity's passcode, and click **Sign in**; the returned token is stored and
+sent as `Authorization: Bearer <token>`.
 
-| Identity | Token | User id |
-|----------|-------|---------|
-| Viewer | `viewer:dev` | 2 |
-| Parent A | `parent:a` | 101 |
-| Parent B | `parent:b` | 102 |
+| Identity | User id | Passcode (demo) |
+|----------|---------|-----------------|
+| Viewer | 2 | `SEED_VIEWER_PASSCODE` |
+| Parent A | 101 | `SEED_PARENT_A_PASSCODE` |
+| Parent B | 102 | `SEED_PARENT_B_PASSCODE` |
+
+Get a token directly:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/auth/token `
+  -H "Content-Type: application/json" `
+  -d '{"user_id": 101, "passcode": "alpha"}'
+```
 
 ## 60-second web demo
 
-1. Switch to **Parent A**, click a day, submit an override request.
+1. Sign in as **Parent A** (identity + passcode), click a day, submit an override request.
 2. That request appears under **Pending** as “Waiting for the other parent.”
-3. Switch to **Parent B**, **Approve** the request.
+3. Sign in as **Parent B**, **Approve** the request.
 4. The calendar day gets the orange override styling.
 5. Refresh — the override stays (approved + persisted).
 6. Switch to **Viewer** — schedule is readable; clicking a day does not open the request form.
@@ -108,11 +130,18 @@ fly launch --no-deploy
 fly volumes create sqlite_data --region iad --size 1
 ```
 
-3. Set Twilio secrets (use your real values):
+3. Set the required auth signing secret (a long random value) and Twilio
+   secrets (use your real values). Optionally seed demo login passcodes:
 
 ```powershell
+fly secrets set AUTH_SIGNING_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
 fly secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=...
+# Optional demo logins (omit to disable passcode login for those users):
+fly secrets set SEED_PARENT_A_PASSCODE=... SEED_PARENT_B_PASSCODE=... SEED_VIEWER_PASSCODE=...
 ```
+
+Without `AUTH_SIGNING_SECRET` set, the deployed API returns 401 for every
+authenticated request. Passcodes are hashed and only seed on a fresh volume.
 
 4. After you have a Vercel URL, allow its origin (keep localhost for local UI against prod API if needed):
 
