@@ -1,9 +1,10 @@
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
-load_dotenv()  # must run before any module reads TWILIO_* env vars
+load_dotenv()  # must run before any module reads TWILIO_* / DATABASE_URL env vars
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -15,6 +16,19 @@ from api.twilio_webhook import twilio_router  # noqa: E402
 from database.connection import engine  # noqa: E402
 from database import schema  # noqa: E402, F401 — register table models
 from database.schema import BaselineTable, FamilyLink, UserTable  # noqa: E402
+
+
+def parse_allowed_origins(raw: str | None = None) -> list[str]:
+    value = (
+        raw
+        if raw is not None
+        else os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+    )
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def allow_sqlite_schema_reset() -> bool:
+    return os.getenv("ALLOW_SQLITE_SCHEMA_RESET", "") == "1"
 
 
 def ensure_default_seed_data(session: Session) -> None:
@@ -79,9 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             ensure_default_seed_data(session)
         except OperationalError:
-            # Local SQLite schema drift (e.g. new columns) — recreate empty DB.
-            # Narrowly scoped to OperationalError (SQLite's "no such column/table")
-            # so unrelated bugs during seeding surface loudly instead of wiping data.
+            # Local SQLite schema drift (e.g. new columns) — recreate empty DB
+            # only when explicitly enabled. Never wipe on Fly / production volumes.
+            if not allow_sqlite_schema_reset():
+                raise
             print(
                 "WARNING: SQLite schema drift detected in custody.db — "
                 "recreating the database with the current schema."
@@ -101,7 +116,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=parse_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -136,7 +136,8 @@ def test_lifespan_recreates_db_on_operational_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Genuine schema drift (OperationalError, e.g. "no such column") should
-    still trigger the recover-by-recreating-the-DB path."""
+    still trigger the recover-by-recreating-the-DB path when explicitly enabled."""
+    monkeypatch.setenv("ALLOW_SQLITE_SCHEMA_RESET", "1")
     monkeypatch.setattr(main_module, "engine", _isolated_engine())
 
     seed_calls: list[int] = []
@@ -155,3 +156,28 @@ def test_lifespan_recreates_db_on_operational_error(
     asyncio.run(run())
 
     assert len(seed_calls) == 2
+
+
+def test_lifespan_does_not_wipe_db_on_operational_error_without_reset_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Fly (no ALLOW_SQLITE_SCHEMA_RESET), schema drift must surface loudly."""
+    monkeypatch.delenv("ALLOW_SQLITE_SCHEMA_RESET", raising=False)
+    monkeypatch.setattr(main_module, "engine", _isolated_engine())
+
+    seed_calls: list[int] = []
+
+    def flaky_seed(session: Session) -> None:
+        seed_calls.append(1)
+        raise OperationalError("stmt", {}, Exception("no such column: users.phone"))
+
+    monkeypatch.setattr(main_module, "ensure_default_seed_data", flaky_seed)
+
+    async def run() -> None:
+        async with main_module.lifespan(main_module.app):
+            pass
+
+    with pytest.raises(OperationalError):
+        asyncio.run(run())
+
+    assert len(seed_calls) == 1

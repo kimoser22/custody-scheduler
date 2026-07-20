@@ -87,3 +87,78 @@ Example:
 4. Simulator prints final override status (`Approved` / `is_active=True`) and the FakeSms log
 
 Tests: `pytest tests/` covers handshake domain, repos, nodes, LangGraph interrupt/resume, webhook, runner E2E, and the simulator helper.
+
+## Deploy API to Fly.io
+
+The Next.js app stays on Vercel (or local). Fly hosts **only** the FastAPI API with a persistent SQLite volume.
+
+Prerequisites: [flyctl](https://fly.io/docs/flyctl/install/) installed and `fly auth login`.
+
+From the **repo root** (where `Dockerfile` and `fly.toml` live):
+
+1. Create the app without deploying (first time only):
+
+```powershell
+fly launch --no-deploy
+```
+
+2. Create the 1GB volume in `iad` (must match `primary_region` / mounts):
+
+```powershell
+fly volumes create sqlite_data --region iad --size 1
+```
+
+3. Set Twilio secrets (use your real values):
+
+```powershell
+fly secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=...
+```
+
+4. After you have a Vercel URL, allow its origin (keep localhost for local UI against prod API if needed):
+
+```powershell
+fly secrets set ALLOWED_ORIGINS="http://localhost:3000,https://YOUR_APP.vercel.app"
+```
+
+5. Deploy:
+
+```powershell
+fly deploy
+```
+
+6. Smoke-test: open `https://custody-scheduler-api.fly.dev/docs`
+
+7. Point Twilio’s SMS webhook at:
+
+`https://custody-scheduler-api.fly.dev/api/v1/twilio/sms`
+
+Notes:
+
+- Run **one machine / one uvicorn process** (as in `fly.toml` + Dockerfile `CMD`) so in-memory SMS handshakes survive between requests.
+- Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
+- `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
+
+## Deploy frontend to Vercel
+
+The calendar UI deploys from the `frontend/` folder. It calls the Fly API directly via `NEXT_PUBLIC_API_URL`.
+
+1. Confirm the API is up: `https://custody-scheduler-api.fly.dev/docs` (and `/api/v1/health`).
+2. In Vercel: Import the GitHub repo.
+3. Set **Root Directory** to `frontend` (Framework Preset: Next.js).
+4. Add environment variable (Production):
+
+   `NEXT_PUBLIC_API_URL=https://custody-scheduler-api.fly.dev`
+
+5. Deploy. Open `https://YOUR_APP.vercel.app/schedule`.
+6. Allow the Vercel origin on Fly (CORS):
+
+```powershell
+fly secrets set ALLOWED_ORIGINS="http://localhost:3000,https://YOUR_APP.vercel.app"
+```
+
+7. On the schedule page, pick **Viewer** / **Parent A** / **Parent B** in the identity bar (API requires an `Authorization` token).
+
+Notes:
+
+- Local: leave `NEXT_PUBLIC_API_URL` unset so Next rewrites proxy to `127.0.0.1:8000`.
+- `npm run build` uses the committed `frontend/openapi/schema.json` (no localhost OpenAPI fetch). Set `API_OPENAPI_URL` only when regenerating types from a running API.

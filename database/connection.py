@@ -1,8 +1,14 @@
+import os
 from collections.abc import Generator
 
 from sqlmodel import Session, create_engine
 
-DATABASE_URL = "sqlite:///./custody.db"
+
+def resolve_database_url() -> str:
+    return os.getenv("DATABASE_URL", "sqlite:///./custody.db")
+
+
+DATABASE_URL = resolve_database_url()
 
 engine = create_engine(
     DATABASE_URL,
