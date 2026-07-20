@@ -136,6 +136,7 @@ Notes:
 
 - Run **one machine / one uvicorn process** (as in `fly.toml` + Dockerfile `CMD`) so in-memory SMS handshakes survive between requests.
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
+- The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
 - `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
 
 ## Deploy frontend to Vercel

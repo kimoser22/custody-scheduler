@@ -41,11 +41,16 @@ def _compute_twilio_signature(auth_token: str, url: str, params: dict[str, str])
 async def verify_twilio_signature(request: Request) -> None:
     auth_token = os.getenv("TWILIO_AUTH_TOKEN")
     if not auth_token:
-        # No Twilio credentials configured (local dev / simulator / A2P not yet
-        # provisioned) — nothing to verify against. Skip rather than lock the
-        # endpoint out entirely; this codepath must not be reached with real
-        # public traffic until TWILIO_AUTH_TOKEN is set.
-        return
+        # No Twilio credentials configured. Fail closed by default — an
+        # unverified webhook trusts attacker-controlled form fields (From, Body)
+        # as identity. Verification is skipped only when an operator explicitly
+        # opts out for local dev / the simulator (mirrors ALLOW_SQLITE_SCHEMA_RESET).
+        if os.getenv("TWILIO_ALLOW_UNVERIFIED") == "1":
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Twilio signature verification is not configured.",
+        )
 
     signature = request.headers.get("x-twilio-signature")
     if not signature:

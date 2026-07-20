@@ -22,8 +22,9 @@ def _twilio_signature(auth_token: str, url: str, params: dict[str, str]) -> str:
 
 
 def test_twilio_webhook_invokes_runner_and_returns_twiml(
-    client_fixture: TestClient,
+    client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
     runner = RecordingConciergeRunner(response={"status": "ok"})
     app.dependency_overrides[get_concierge_runner] = lambda: runner
 
@@ -49,8 +50,9 @@ def test_twilio_webhook_invokes_runner_and_returns_twiml(
 
 
 def test_twilio_webhook_silent_on_dropped(
-    client_fixture: TestClient,
+    client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
     runner = RecordingConciergeRunner(response={"status": "dropped"})
     app.dependency_overrides[get_concierge_runner] = lambda: runner
 
@@ -65,8 +67,9 @@ def test_twilio_webhook_silent_on_dropped(
 
 
 def test_twilio_webhook_silent_on_unknown_sender(
-    client_fixture: TestClient,
+    client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
     runner = RecordingConciergeRunner(response={"status": "ignored", "reason": "unknown_sender"})
     app.dependency_overrides[get_concierge_runner] = lambda: runner
 
@@ -79,10 +82,33 @@ def test_twilio_webhook_silent_on_unknown_sender(
     app.dependency_overrides.pop(get_concierge_runner, None)
 
 
-def test_twilio_webhook_skips_verification_when_unconfigured(
+def test_twilio_webhook_rejects_when_unconfigured_by_default(
     client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Fail closed: with no TWILIO_AUTH_TOKEN and no explicit opt-out, the
+    webhook must reject rather than trust attacker-controlled form fields."""
     monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWILIO_ALLOW_UNVERIFIED", raising=False)
+    runner = RecordingConciergeRunner(response={"status": "ok"})
+    app.dependency_overrides[get_concierge_runner] = lambda: runner
+
+    response = client_fixture.post(
+        "/api/v1/twilio/sms",
+        data={"MessageSid": "SMnosig", "From": "+15550001", "Body": "hi"},
+    )
+
+    assert response.status_code == 403
+    assert runner.calls == []
+    app.dependency_overrides.pop(get_concierge_runner, None)
+
+
+def test_twilio_webhook_skips_only_with_explicit_local_optin(
+    client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local dev / simulator escape hatch: verification is skipped only when
+    TWILIO_ALLOW_UNVERIFIED is explicitly set (mirrors ALLOW_SQLITE_SCHEMA_RESET)."""
+    monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
     runner = RecordingConciergeRunner(response={"status": "ok"})
     app.dependency_overrides[get_concierge_runner] = lambda: runner
 
@@ -92,6 +118,7 @@ def test_twilio_webhook_skips_verification_when_unconfigured(
     )
 
     assert response.status_code == 200
+    assert runner.calls
     app.dependency_overrides.pop(get_concierge_runner, None)
 
 
@@ -154,7 +181,9 @@ def test_twilio_webhook_rejects_missing_signature_when_configured(
 
 
 def test_twilio_webhook_uses_the_request_scoped_session_not_a_leaked_one(
-    client_fixture: TestClient, session_fixture: Session
+    client_fixture: TestClient,
+    session_fixture: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression test: get_concierge_runner previously built its own
     Session(engine) pointing at the real database.connection.engine,
@@ -163,6 +192,7 @@ def test_twilio_webhook_uses_the_request_scoped_session_not_a_leaked_one(
     the same request-scoped (and here, test-overridden) session. Proven by
     resolving a phone number that only exists in the test DB, through the
     real (non-Recording) get_concierge_runner."""
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
     session_fixture.add(
         UserTable(
             id=9101,

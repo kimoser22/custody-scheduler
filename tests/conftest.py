@@ -41,6 +41,9 @@ def _isolate_twilio_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
     monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("TWILIO_FROM_NUMBER", raising=False)
+    # The webhook fails closed when unconfigured; only an explicit opt-in flag
+    # skips verification. Strip it so no test accidentally rides that hatch.
+    monkeypatch.delenv("TWILIO_ALLOW_UNVERIFIED", raising=False)
 
 
 @pytest.fixture(name="session_fixture")
