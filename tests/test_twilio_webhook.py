@@ -209,7 +209,7 @@ def test_twilio_webhook_uses_the_request_scoped_session_not_a_leaked_one(
         data={
             "MessageSid": "SM-session-wiring",
             "From": "+19995551234",
-            "Body": "swap please",
+            "Body": "swap 2026-07-08 to Parent B",
         },
     )
 

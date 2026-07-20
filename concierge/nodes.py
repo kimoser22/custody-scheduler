@@ -20,6 +20,11 @@ from concierge.ports import (
 
 OVERRIDE_TTL = timedelta(hours=24)
 
+UNCLEAR_REQUEST_SMS = (
+    "Sorry, I couldn't understand that swap request. Please text a date and "
+    "the parent, e.g. 'swap 2026-08-15 to Parent B'."
+)
+
 
 class ConciergeState(TypedDict, total=False):
     thread_id: str
@@ -105,6 +110,20 @@ def ingest_and_dedupe(state: ConciergeState, deps: ConciergeDeps) -> ConciergeSt
 
 def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = deps.parser.parse(state["inbound_body"])
+    if intent is None:
+        # Fail safe: the message didn't clearly specify a date + parent. Ask the
+        # initiator to clarify instead of drafting a guessed custody handoff.
+        deps.sms.send(state["initiator_phone"], UNCLEAR_REQUEST_SMS)
+        deps.audit.append(
+            family_id=state["family_id"],
+            actor_role=state["initiator_role"],
+            action_type="parse_unclear",
+            description="Could not parse swap request; asked for clarification",
+            previous_state_id=None,
+            timestamp=deps.now,
+        )
+        return {**state, "current_step": "unparseable", "error": "unparseable"}
+
     draft = deps.overrides.create_draft(
         family_id=state["family_id"],
         override_date=intent.override_date,

@@ -53,15 +53,25 @@ class EnvTwilioSmsGateway:
 
 
 class HeuristicIntentParser:
-    """Deterministic parser for demos; swap for an LLM adapter later."""
+    """Deterministic parser for demos; swap for an LLM adapter later.
 
-    def parse(self, text: str) -> ParsedIntent:
+    Fails safe: returns None when the message does not clearly specify both a
+    real calendar date and a target parent, rather than guessing. A wrong guess
+    here silently drafts the wrong custody handoff, so ambiguity must round-trip
+    to the sender as a clarification request (see concierge.nodes.parse_intent).
+    """
+
+    def parse(self, text: str) -> ParsedIntent | None:
         lowered = text.lower()
-        assigned = (
-            ParentRole.PARENT_B if "parent b" in lowered else ParentRole.PARENT_A
-        )
-        # Prefer an explicit ISO date if present; otherwise demo default.
-        override_date = date(2026, 7, 8)
+
+        if "parent b" in lowered:
+            assigned: ParentRole | None = ParentRole.PARENT_B
+        elif "parent a" in lowered:
+            assigned = ParentRole.PARENT_A
+        else:
+            assigned = None
+
+        override_date: date | None = None
         for token in text.replace(",", " ").split():
             if len(token) == 10 and token[4] == "-" and token[7] == "-":
                 try:
@@ -69,6 +79,10 @@ class HeuristicIntentParser:
                 except ValueError:
                     continue
                 break
+
+        if override_date is None or assigned is None:
+            return None
+
         return ParsedIntent(
             override_date=override_date,
             assigned_parent=assigned,

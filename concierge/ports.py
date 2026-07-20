@@ -33,7 +33,7 @@ class SmsGateway(Protocol):
 
 
 class IntentParser(Protocol):
-    def parse(self, text: str) -> ParsedIntent: ...
+    def parse(self, text: str) -> ParsedIntent | None: ...
 
 
 class SenderResolver(Protocol):
@@ -101,9 +101,9 @@ class FakeSmsGateway:
 
 @dataclass
 class FakeIntentParser:
-    intent: ParsedIntent
+    intent: ParsedIntent | None
 
-    def parse(self, text: str) -> ParsedIntent:
+    def parse(self, text: str) -> ParsedIntent | None:
         return self.intent
 
 
