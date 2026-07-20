@@ -74,12 +74,11 @@ def receive_sms(
     From: str = Form(...),
     Body: str = Form(...),
 ) -> Response:
-    result = runner.handle_sms(
+    runner.handle_sms(
         message_sid=MessageSid,
         from_phone=From,
         body=Body,
     )
-    # Silent Twilio-friendly ack; business outcome is in SMS replies from nodes.
-    if result.get("status") in {"dropped", "ignored"}:
-        return Response(content="<Response></Response>", media_type="application/xml")
+    # Always a silent, empty-TwiML ack (dropped, ignored, or handled alike);
+    # the business outcome is delivered via the SMS replies the nodes send.
     return Response(content="<Response></Response>", media_type="application/xml")
