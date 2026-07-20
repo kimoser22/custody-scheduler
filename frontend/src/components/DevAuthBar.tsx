@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   type Identity,
@@ -8,6 +8,7 @@ import {
   type Session,
   IDENTITY_USER_IDS,
   clearSession,
+  getSession,
   login,
 } from "@/lib/auth";
 
@@ -24,6 +25,17 @@ export function DevAuthBar({ onAuthChange, loginFn }: DevAuthBarProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Restore a session written by an earlier page load instead of always
+  // starting signed-out — a stored token is still valid until it expires.
+  useEffect(() => {
+    const existing = getSession();
+    if (existing) {
+      setSession(existing);
+      onAuthChange?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSignIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

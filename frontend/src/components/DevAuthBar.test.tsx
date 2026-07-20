@@ -4,11 +4,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DevAuthBar } from "@/components/DevAuthBar";
 import type { LoginOutcome } from "@/lib/api/auth";
-import { getAuthToken, getSession } from "@/lib/auth";
+import { getAuthToken, getSession, login } from "@/lib/auth";
 
 describe("DevAuthBar", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("restores an existing session from localStorage on mount instead of showing signed-out", async () => {
+    const loginFn = vi.fn(
+      async (): Promise<LoginOutcome> => ({
+        ok: true,
+        status: 200,
+        data: {
+          access_token: "restored.token.value",
+          token_type: "bearer",
+          user_id: 102,
+          role: "Parent",
+        },
+      }),
+    );
+    // Simulate a prior sign-in that already wrote a session to localStorage
+    // (e.g. from an earlier page load), before this component ever mounts.
+    await login(102, "bravo-pass", loginFn);
+
+    const onAuthChange = vi.fn();
+    render(<DevAuthBar onAuthChange={onAuthChange} />);
+
+    expect(
+      await screen.findByText("Signed in as Parent (user 102)"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Not signed in")).not.toBeInTheDocument();
+  });
+
+  it("shows not-signed-in on mount when localStorage has no session", () => {
+    render(<DevAuthBar />);
+    expect(screen.getByText("Not signed in")).toBeInTheDocument();
   });
 
   it("logs in with a passcode and stores the returned session", async () => {
