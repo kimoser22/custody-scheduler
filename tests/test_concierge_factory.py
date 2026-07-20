@@ -58,7 +58,9 @@ def test_handshake_state_persists_across_separate_runner_builds(
     # instance, built fresh, exactly as api.twilio_webhook.get_concierge_runner
     # does via FastAPI's Depends.
     first = build_default_runner(session=session_fixture).handle_sms(
-        message_sid="SM-fac-1", from_phone="+19995550001", body="swap please"
+        message_sid="SM-fac-1",
+        from_phone="+19995550001",
+        body="swap 2026-07-08 to Parent B",
     )
     assert first["status"] == "waiting"
 

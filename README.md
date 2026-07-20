@@ -73,6 +73,10 @@ SMS sits **alongside** the web UI. A swap becomes calendar-visible only after:
 3. Counterparty replies **ACCEPT** → status `Approved` + `is_active` (engine-visible)
 4. **DENY** / initiator **NO** → `Rejected` (not on calendar)
 
+If the inbound message doesn't clearly specify **both** a date and a parent
+(e.g. `swap 2026-07-08 to Parent B`), the concierge replies asking for
+clarification and creates no draft — it never guesses a date or parent.
+
 Webhook: `POST /api/v1/twilio/sms` (Twilio form fields `MessageSid`, `From`, `Body`).
 
 Seeded demo phones (recreate `custody.db` if the schema changed):

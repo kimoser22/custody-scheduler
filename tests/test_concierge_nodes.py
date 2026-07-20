@@ -127,6 +127,35 @@ def test_parse_intent_creates_draft(session_fixture) -> None:
     assert draft.is_active is False
 
 
+def test_parse_intent_unclear_asks_for_clarification_and_creates_no_draft(
+    session_fixture,
+) -> None:
+    from sqlmodel import select
+
+    from database.schema import OverrideTable
+
+    deps, sms = _deps(session_fixture)
+    deps.parser = FakeIntentParser(None)  # parser can't confidently read the message
+    state = ingest_and_dedupe(
+        {
+            "message_sid": "SM-unclear",
+            "inbound_from": "+15550001",
+            "inbound_body": "can you take him sometime?",
+        },
+        deps,
+    )
+
+    result = parse_intent(state, deps)
+
+    assert result["current_step"] == "unparseable"
+    assert "override_id" not in result
+    # A clarification SMS goes back to the initiator only.
+    assert sms.sent[-1][0] == "+15550001"
+    assert "understand" in sms.sent[-1][1].lower()
+    # Nothing was persisted.
+    assert session_fixture.exec(select(OverrideTable)).all() == []
+
+
 def test_draft_confirmation_sms_body(session_fixture) -> None:
     deps, sms = _deps(session_fixture)
     state = parse_intent(

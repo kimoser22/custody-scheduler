@@ -26,6 +26,14 @@ def _route_after_ingest(state: ConciergeState) -> Literal["parse_intent", "end"]
     return "parse_intent"
 
 
+def _route_after_parse(
+    state: ConciergeState,
+) -> Literal["draft_confirmation_sms", "end"]:
+    if state.get("current_step") == "unparseable":
+        return "end"
+    return "draft_confirmation_sms"
+
+
 def _route_after_initiator(
     state: ConciergeState,
 ) -> Literal["send_proposal_to_counterparty", "end"]:
@@ -104,7 +112,11 @@ def build_concierge_graph(deps: ConciergeDeps, checkpointer: Any | None = None):
         _route_after_ingest,
         {"parse_intent": "parse_intent", "end": END},
     )
-    graph.add_edge("parse_intent", "draft_confirmation_sms")
+    graph.add_conditional_edges(
+        "parse_intent",
+        _route_after_parse,
+        {"draft_confirmation_sms": "draft_confirmation_sms", "end": END},
+    )
     graph.add_edge("draft_confirmation_sms", "process_initiator_reply")
     graph.add_conditional_edges(
         "process_initiator_reply",

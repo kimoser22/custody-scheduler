@@ -98,6 +98,30 @@ def test_graph_double_handshake_happy_path(session_fixture) -> None:
     assert any("Confirmed" in body for _, body in sms.sent)
 
 
+def test_graph_ends_without_draft_on_unclear_message(session_fixture) -> None:
+    """An unparseable inbound message ends the graph immediately — no interrupt,
+    no draft — after sending a clarification SMS, rather than fabricating a
+    wrong-date/wrong-parent draft and asking the initiator to confirm it."""
+    from concierge.ports import FakeIntentParser
+
+    graph, deps, sms = _build(session_fixture)
+    deps.parser = FakeIntentParser(None)
+
+    result = graph.invoke(
+        {
+            "message_sid": "SM-unclear",
+            "inbound_from": "+15550001",
+            "inbound_body": "hey are you around next week",
+        },
+        config={"configurable": {"thread_id": "unclear-thread-1"}},
+    )
+
+    assert "__interrupt__" not in result
+    assert result.get("current_step") == "unparseable"
+    assert "override_id" not in result
+    assert any("understand" in body.lower() for _, body in sms.sent)
+
+
 def test_graph_itself_does_not_dedupe_by_message_sid(session_fixture) -> None:
     """message_sid dedup is a transport-boundary concern owned by
     LangGraphConciergeRunner.handle_sms (see
