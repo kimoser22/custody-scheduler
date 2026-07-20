@@ -46,6 +46,14 @@ def _isolate_twilio_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TWILIO_ALLOW_UNVERIFIED", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _auth_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_current_user verifies HMAC-signed tokens against AUTH_SIGNING_SECRET.
+    Provide a stable test secret so real-token request paths work; tests that
+    assert fail-closed behavior override it with their own monkeypatch."""
+    monkeypatch.setenv("AUTH_SIGNING_SECRET", "test-signing-secret")
+
+
 @pytest.fixture(name="session_fixture")
 def _session_fixture() -> Generator[Session, None, None]:
     SQLModel.metadata.create_all(engine)

@@ -5,9 +5,12 @@ from fastapi import Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from api.auth_tokens import TokenError, verify_token
 from database.connection import get_session
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+_BEARER_PREFIX = "Bearer "
 
 
 class CurrentUser(BaseModel):
@@ -22,30 +25,21 @@ async def get_token(authorization: str | None = Header(default=None)) -> str:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
+    if authorization.startswith(_BEARER_PREFIX):
+        return authorization[len(_BEARER_PREFIX):]
     return authorization
-
-
-def _role_from_token(token: str) -> str:
-    if token.startswith("parent:"):
-        return "Parent"
-    return "Viewer"
-
-
-_PARENT_TOKEN_IDS = {"dev": 1, "a": 101, "b": 102}
-
-
-def _user_id_from_token(token: str, role: str) -> int:
-    if role != "Parent":
-        return 2
-    suffix = token.split(":", 1)[1] if ":" in token else "dev"
-    return _PARENT_TOKEN_IDS.get(suffix, 1)
 
 
 async def get_current_user(
     token: Annotated[str, Depends(get_token)],
 ) -> CurrentUser:
-    role = _role_from_token(token)
-    user_id = _user_id_from_token(token, role)
+    try:
+        user_id, role = verify_token(token)
+    except TokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+        ) from None
     return CurrentUser(id=user_id, role=role)
 
 
