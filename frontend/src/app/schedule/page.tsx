@@ -13,9 +13,10 @@ import {
   fetchPendingOverridesRequest,
 } from "@/lib/api/overrides";
 import {
+  type Session,
   canRequestOverride,
-  getAuthToken,
-  userIdFromToken,
+  currentUserId as currentUserIdFrom,
+  getSession,
 } from "@/lib/auth";
 import { getMonthRange, shiftMonth } from "@/lib/calendar";
 import type { DailyCustodyState } from "@/lib/types";
@@ -23,7 +24,8 @@ import type { DailyCustodyState } from "@/lib/types";
 export default function SchedulePage() {
   const [monthReference, setMonthReference] = useState(() => new Date());
   const { startDate, endDate } = getMonthRange(monthReference);
-  const [authToken, setAuthTokenState] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const authToken = session?.token ?? null;
   const { days, isLoading, error, refetch } = useSchedule({
     startDate,
     endDate,
@@ -31,15 +33,15 @@ export default function SchedulePage() {
   });
   const [selectedDay, setSelectedDay] = useState<DailyCustodyState | null>(null);
   const [pendingListVersion, setPendingListVersion] = useState(0);
-  const currentUserId = userIdFromToken(authToken);
-  const showOverrideForm = selectedDay != null && canRequestOverride(authToken);
+  const currentUserId = currentUserIdFrom(session);
+  const showOverrideForm = selectedDay != null && canRequestOverride(session);
 
   function handleAuthChange() {
-    setAuthTokenState(getAuthToken());
+    setSession(getSession());
   }
 
   function handleDaySelect(day: DailyCustodyState) {
-    if (!canRequestOverride(getAuthToken())) {
+    if (!canRequestOverride(getSession())) {
       setSelectedDay(null);
       return;
     }

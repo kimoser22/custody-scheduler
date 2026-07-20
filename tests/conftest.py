@@ -41,6 +41,17 @@ def _isolate_twilio_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
     monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("TWILIO_FROM_NUMBER", raising=False)
+    # The webhook fails closed when unconfigured; only an explicit opt-in flag
+    # skips verification. Strip it so no test accidentally rides that hatch.
+    monkeypatch.delenv("TWILIO_ALLOW_UNVERIFIED", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _auth_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_current_user verifies HMAC-signed tokens against AUTH_SIGNING_SECRET.
+    Provide a stable test secret so real-token request paths work; tests that
+    assert fail-closed behavior override it with their own monkeypatch."""
+    monkeypatch.setenv("AUTH_SIGNING_SECRET", "test-signing-secret")
 
 
 @pytest.fixture(name="session_fixture")

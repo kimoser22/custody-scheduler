@@ -1,20 +1,43 @@
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
-load_dotenv()  # must run before any module reads TWILIO_* env vars
+load_dotenv()  # must run before any module reads TWILIO_* / DATABASE_URL env vars
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlmodel import Session, SQLModel, select  # noqa: E402
 
+from api.auth_router import auth_router  # noqa: E402
+from api.passcodes import hash_passcode  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
 from api.twilio_webhook import twilio_router  # noqa: E402
 from database.connection import engine  # noqa: E402
 from database import schema  # noqa: E402, F401 — register table models
 from database.schema import BaselineTable, FamilyLink, UserTable  # noqa: E402
+
+
+def parse_allowed_origins(raw: str | None = None) -> list[str]:
+    value = (
+        raw
+        if raw is not None
+        else os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+    )
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def allow_sqlite_schema_reset() -> bool:
+    return os.getenv("ALLOW_SQLITE_SCHEMA_RESET", "") == "1"
+
+
+def _seed_passcode_hash(env_var: str) -> str | None:
+    """Hash a demo passcode supplied via env, or None to leave login disabled.
+    Passcodes are never committed — set SEED_PARENT_*_PASSCODE to enable login."""
+    raw = os.getenv(env_var)
+    return hash_passcode(raw) if raw else None
 
 
 def ensure_default_seed_data(session: Session) -> None:
@@ -49,6 +72,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Parent",
                 phone="+15550001",
                 custody_label="Parent A",
+                passcode_hash=_seed_passcode_hash("SEED_PARENT_A_PASSCODE"),
             )
         )
         session.add(
@@ -58,6 +82,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Parent",
                 phone="+15550002",
                 custody_label="Parent B",
+                passcode_hash=_seed_passcode_hash("SEED_PARENT_B_PASSCODE"),
             )
         )
         session.add(
@@ -67,6 +92,7 @@ def ensure_default_seed_data(session: Session) -> None:
                 role="Viewer",
                 phone=None,
                 custody_label=None,
+                passcode_hash=_seed_passcode_hash("SEED_VIEWER_PASSCODE"),
             )
         )
         session.commit()
@@ -79,9 +105,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             ensure_default_seed_data(session)
         except OperationalError:
-            # Local SQLite schema drift (e.g. new columns) — recreate empty DB.
-            # Narrowly scoped to OperationalError (SQLite's "no such column/table")
-            # so unrelated bugs during seeding surface loudly instead of wiping data.
+            # Local SQLite schema drift (e.g. new columns) — recreate empty DB
+            # only when explicitly enabled. Never wipe on Fly / production volumes.
+            if not allow_sqlite_schema_reset():
+                raise
             print(
                 "WARNING: SQLite schema drift detected in custody.db — "
                 "recreating the database with the current schema."
@@ -101,12 +128,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=parse_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(schedule_router)
 app.include_router(twilio_router)

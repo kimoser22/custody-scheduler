@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/auth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue Token */
+        post: operations["issue_token_api_v1_auth_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -106,10 +123,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/twilio/sms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receive Sms */
+        post: operations["receive_sms_api_v1_twilio_sms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_receive_sms_api_v1_twilio_sms_post */
+        Body_receive_sms_api_v1_twilio_sms_post: {
+            /** Messagesid */
+            MessageSid: string;
+            /** From */
+            From: string;
+            /** Body */
+            Body: string;
+        };
         /** DailyCustodyState */
         DailyCustodyState: {
             /**
@@ -137,7 +180,7 @@ export interface components {
          * OverrideStatus
          * @enum {string}
          */
-        OverrideStatus: "Pending" | "Approved" | "Rejected" | "Expired";
+        OverrideStatus: "Draft" | "Pending" | "Approved" | "Rejected" | "Expired";
         /**
          * OverrideType
          * @enum {string}
@@ -173,6 +216,27 @@ export interface components {
             /** Requested By User Id */
             requested_by_user_id?: number | null;
         };
+        /** TokenRequest */
+        TokenRequest: {
+            /** User Id */
+            user_id: number;
+            /** Passcode */
+            passcode: string;
+        };
+        /** TokenResponse */
+        TokenResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            /** User Id */
+            user_id: number;
+            /** Role */
+            role: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -195,6 +259,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    issue_token_api_v1_auth_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_check_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -374,6 +471,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: number;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_sms_api_v1_twilio_sms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_receive_sms_api_v1_twilio_sms_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

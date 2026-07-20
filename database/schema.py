@@ -19,6 +19,7 @@ class UserTable(SQLModel, table=True):
     role: str
     phone: str | None = None
     custody_label: str | None = None
+    passcode_hash: str | None = None
 
 
 class BaselineTable(SQLModel, table=True):

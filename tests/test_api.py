@@ -1,13 +1,19 @@
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from api.auth_tokens import mint_token
 from api.dependencies import get_current_user
 from core.models import OverrideType, ParentRole, ScheduleOverride
 from database.schema import OverrideTable, UserTable
 from main import app
+
+
+def _auth_header(user_id: int, role: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {mint_token(user_id=user_id, role=role)}"}
 
 OVERRIDE_PAYLOAD = {
     "override_date": "2026-01-15",
@@ -357,13 +363,61 @@ def test_pending_overrides_listing_excludes_decided_requests(
     assert response.json() == []
 
 
-def test_distinct_parent_dev_tokens_have_stable_but_different_identities(
+def test_forged_prefix_token_is_rejected(client_fixture: TestClient) -> None:
+    """The old fabricated `parent:a` form is no longer a valid credential — it
+    carries no signature, so it must be rejected rather than granting parent
+    rights to anyone who sends the string."""
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json=OVERRIDE_PAYLOAD,
+        headers={"Authorization": "parent:a"},
+    )
+    assert response.status_code == 401
+
+
+def test_token_signed_with_wrong_secret_is_rejected(
+    client_fixture: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AUTH_SIGNING_SECRET", "attacker-secret")
+    forged = f"Bearer {mint_token(user_id=101, role='Parent')}"
+    monkeypatch.setenv("AUTH_SIGNING_SECRET", "test-signing-secret")
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json=OVERRIDE_PAYLOAD,
+        headers={"Authorization": forged},
+    )
+    assert response.status_code == 401
+
+
+def test_minted_parent_token_grants_parent_access(
+    client_fixture: TestClient,
+) -> None:
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json=OVERRIDE_PAYLOAD,
+        headers=_auth_header(user_id=101, role="Parent"),
+    )
+    assert response.status_code == 200
+
+
+def test_minted_viewer_token_cannot_create_override(
+    client_fixture: TestClient,
+) -> None:
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json=OVERRIDE_PAYLOAD,
+        headers=_auth_header(user_id=2, role="Viewer"),
+    )
+    assert response.status_code == 403
+
+
+def test_distinct_parent_tokens_have_stable_but_different_identities(
     client_fixture: TestClient,
 ) -> None:
     create_response = client_fixture.post(
         "/api/v1/schedule/overrides",
         json=OVERRIDE_PAYLOAD,
-        headers={"Authorization": "parent:a"},
+        headers=_auth_header(user_id=101, role="Parent"),
     )
     assert create_response.status_code == 200
     override_id = create_response.json()["id"]
@@ -371,14 +425,14 @@ def test_distinct_parent_dev_tokens_have_stable_but_different_identities(
     self_decision = client_fixture.post(
         f"/api/v1/schedule/overrides/{override_id}/decision",
         json={"approve": True},
-        headers={"Authorization": "parent:a"},
+        headers=_auth_header(user_id=101, role="Parent"),
     )
     assert self_decision.status_code == 403
 
     other_decision = client_fixture.post(
         f"/api/v1/schedule/overrides/{override_id}/decision",
         json={"approve": True},
-        headers={"Authorization": "parent:b"},
+        headers=_auth_header(user_id=102, role="Parent"),
     )
     assert other_decision.status_code == 200
     assert other_decision.json()["status"] == "Approved"

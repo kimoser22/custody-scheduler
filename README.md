@@ -6,11 +6,22 @@ Compute-on-read 2-2-3 custody calendar with dual-parent override approvals.
 
 ### API (terminal 1)
 
+The API **fails closed**: `AUTH_SIGNING_SECRET` must be set or every
+authenticated request returns 401. To use the sign-in flow, also set demo
+passcodes (they are hashed at seed time and never committed):
+
 ```powershell
 cd C:\Users\andre\custody-scheduler
 .\.venv\Scripts\Activate.ps1
+$env:AUTH_SIGNING_SECRET = "dev-only-change-me"
+$env:SEED_PARENT_A_PASSCODE = "alpha"
+$env:SEED_PARENT_B_PASSCODE = "bravo"
+$env:SEED_VIEWER_PASSCODE = "look"
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+(Or put these in `.env` — see `.env.example`. Passcodes only seed on a fresh
+DB; delete `custody.db` to re-seed.)
 
 ### Frontend (terminal 2)
 
@@ -21,21 +32,32 @@ npm run dev
 
 Open http://localhost:3000/schedule
 
-## Dev identities
+## Sign in
 
-Use the **Identity** dropdown on the schedule page (or set `Authorization` headers):
+The API trusts only HMAC-signed tokens issued by `POST /api/v1/auth/token` in
+exchange for a valid passcode. On the schedule page, pick an **Identity**, enter
+that identity's passcode, and click **Sign in**; the returned token is stored and
+sent as `Authorization: Bearer <token>`.
 
-| Identity | Token | User id |
-|----------|-------|---------|
-| Viewer | `viewer:dev` | 2 |
-| Parent A | `parent:a` | 101 |
-| Parent B | `parent:b` | 102 |
+| Identity | User id | Passcode (demo) |
+|----------|---------|-----------------|
+| Viewer | 2 | `SEED_VIEWER_PASSCODE` |
+| Parent A | 101 | `SEED_PARENT_A_PASSCODE` |
+| Parent B | 102 | `SEED_PARENT_B_PASSCODE` |
+
+Get a token directly:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/auth/token `
+  -H "Content-Type: application/json" `
+  -d '{"user_id": 101, "passcode": "alpha"}'
+```
 
 ## 60-second web demo
 
-1. Switch to **Parent A**, click a day, submit an override request.
+1. Sign in as **Parent A** (identity + passcode), click a day, submit an override request.
 2. That request appears under **Pending** as “Waiting for the other parent.”
-3. Switch to **Parent B**, **Approve** the request.
+3. Sign in as **Parent B**, **Approve** the request.
 4. The calendar day gets the orange override styling.
 5. Refresh — the override stays (approved + persisted).
 6. Switch to **Viewer** — schedule is readable; clicking a day does not open the request form.
@@ -87,3 +109,86 @@ Example:
 4. Simulator prints final override status (`Approved` / `is_active=True`) and the FakeSms log
 
 Tests: `pytest tests/` covers handshake domain, repos, nodes, LangGraph interrupt/resume, webhook, runner E2E, and the simulator helper.
+
+## Deploy API to Fly.io
+
+The Next.js app stays on Vercel (or local). Fly hosts **only** the FastAPI API with a persistent SQLite volume.
+
+Prerequisites: [flyctl](https://fly.io/docs/flyctl/install/) installed and `fly auth login`.
+
+From the **repo root** (where `Dockerfile` and `fly.toml` live):
+
+1. Create the app without deploying (first time only):
+
+```powershell
+fly launch --no-deploy
+```
+
+2. Create the 1GB volume in `iad` (must match `primary_region` / mounts):
+
+```powershell
+fly volumes create sqlite_data --region iad --size 1
+```
+
+3. Set the required auth signing secret (a long random value) and Twilio
+   secrets (use your real values). Optionally seed demo login passcodes:
+
+```powershell
+fly secrets set AUTH_SIGNING_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+fly secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=...
+# Optional demo logins (omit to disable passcode login for those users):
+fly secrets set SEED_PARENT_A_PASSCODE=... SEED_PARENT_B_PASSCODE=... SEED_VIEWER_PASSCODE=...
+```
+
+Without `AUTH_SIGNING_SECRET` set, the deployed API returns 401 for every
+authenticated request. Passcodes are hashed and only seed on a fresh volume.
+
+4. After you have a Vercel URL, allow its origin (keep localhost for local UI against prod API if needed):
+
+```powershell
+fly secrets set ALLOWED_ORIGINS="http://localhost:3000,https://YOUR_APP.vercel.app"
+```
+
+5. Deploy:
+
+```powershell
+fly deploy
+```
+
+6. Smoke-test: open `https://custody-scheduler-api.fly.dev/docs`
+
+7. Point Twilio’s SMS webhook at:
+
+`https://custody-scheduler-api.fly.dev/api/v1/twilio/sms`
+
+Notes:
+
+- Run **one machine / one uvicorn process** (as in `fly.toml` + Dockerfile `CMD`) so in-memory SMS handshakes survive between requests.
+- Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
+- The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
+- `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
+
+## Deploy frontend to Vercel
+
+The calendar UI deploys from the `frontend/` folder. It calls the Fly API directly via `NEXT_PUBLIC_API_URL`.
+
+1. Confirm the API is up: `https://custody-scheduler-api.fly.dev/docs` (and `/api/v1/health`).
+2. In Vercel: Import the GitHub repo.
+3. Set **Root Directory** to `frontend` (Framework Preset: Next.js).
+4. Add environment variable (Production):
+
+   `NEXT_PUBLIC_API_URL=https://custody-scheduler-api.fly.dev`
+
+5. Deploy. Open `https://YOUR_APP.vercel.app/schedule`.
+6. Allow the Vercel origin on Fly (CORS):
+
+```powershell
+fly secrets set ALLOWED_ORIGINS="http://localhost:3000,https://YOUR_APP.vercel.app"
+```
+
+7. On the schedule page, pick **Viewer** / **Parent A** / **Parent B** in the identity bar (API requires an `Authorization` token).
+
+Notes:
+
+- Local: leave `NEXT_PUBLIC_API_URL` unset so Next rewrites proxy to `127.0.0.1:8000`.
+- `npm run build` uses the committed `frontend/openapi/schema.json` (no localhost OpenAPI fetch). Set `API_OPENAPI_URL` only when regenerating types from a running API.

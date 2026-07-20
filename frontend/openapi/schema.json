@@ -5,6 +5,44 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/auth/token": {
+      "post": {
+        "summary": "Issue Token",
+        "operationId": "issue_token_api_v1_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health Check",
@@ -317,10 +355,69 @@
           }
         }
       }
+    },
+    "/api/v1/twilio/sms": {
+      "post": {
+        "summary": "Receive Sms",
+        "operationId": "receive_sms_api_v1_twilio_sms_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_receive_sms_api_v1_twilio_sms_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "Body_receive_sms_api_v1_twilio_sms_post": {
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "title": "Messagesid"
+          },
+          "From": {
+            "type": "string",
+            "title": "From"
+          },
+          "Body": {
+            "type": "string",
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "MessageSid",
+          "From",
+          "Body"
+        ],
+        "title": "Body_receive_sms_api_v1_twilio_sms_post"
+      },
       "DailyCustodyState": {
         "properties": {
           "current_date": {
@@ -387,6 +484,7 @@
       "OverrideStatus": {
         "type": "string",
         "enum": [
+          "Draft",
           "Pending",
           "Approved",
           "Rejected",
@@ -480,6 +578,52 @@
           "description"
         ],
         "title": "ScheduleOverride"
+      },
+      "TokenRequest": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "passcode": {
+            "type": "string",
+            "title": "Passcode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "passcode"
+        ],
+        "title": "TokenRequest"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "user_id",
+          "role"
+        ],
+        "title": "TokenResponse"
       },
       "ValidationError": {
         "properties": {
