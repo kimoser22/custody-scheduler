@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -18,6 +19,24 @@ from database.schema import UserTable
 # LangGraph checkpoint state and the phone->thread mapping persist here.
 _SHARED_CHECKPOINTER = MemorySaver()
 _SHARED_REGISTRY = InMemoryThreadRegistry()
+
+_logger = logging.getLogger(__name__)
+
+
+def warn_ephemeral_handshake_state(logger: logging.Logger | None = None) -> None:
+    """Announce, at startup, that in-flight SMS handshakes are not durable.
+
+    The LangGraph checkpoint (_SHARED_CHECKPOINTER) and phone->thread registry
+    (_SHARED_REGISTRY) live only in this process's memory. Any restart or deploy
+    drops conversations paused mid-handshake — the other parent is never told.
+    Deferred tradeoff; a durable checkpointer would be needed to fix it. Until
+    then, at least fail loudly instead of silently losing state.
+    """
+    (logger or _logger).warning(
+        "SMS handshake state is in-memory only: any restart or deploy drops "
+        "conversations paused mid-handshake. Run a single process and avoid "
+        "restarts while handshakes are in flight."
+    )
 
 
 def build_default_runner(session: Session | None = None) -> LangGraphConciergeRunner:

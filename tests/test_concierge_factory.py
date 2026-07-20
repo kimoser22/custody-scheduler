@@ -1,9 +1,27 @@
+import logging
+
+import pytest
 from sqlmodel import Session
 
-from concierge.factory import build_default_runner
+from concierge.factory import build_default_runner, warn_ephemeral_handshake_state
 from concierge.repos import SqlOverrideRepository
 from core.models import OverrideStatus
 from database.schema import FamilyLink, UserTable
+
+
+def test_warns_that_in_flight_handshakes_are_ephemeral(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The double-handshake checkpoint + registry live only in process memory,
+    so a restart drops in-flight conversations. Startup must say so loudly
+    rather than lose them silently."""
+    with caplog.at_level(logging.WARNING):
+        warn_ephemeral_handshake_state()
+
+    messages = [record.getMessage().lower() for record in caplog.records]
+    assert any(
+        "in-memory" in message and "restart" in message for message in messages
+    )
 
 
 def test_handshake_state_persists_across_separate_runner_builds(
@@ -40,7 +58,9 @@ def test_handshake_state_persists_across_separate_runner_builds(
     # instance, built fresh, exactly as api.twilio_webhook.get_concierge_runner
     # does via FastAPI's Depends.
     first = build_default_runner(session=session_fixture).handle_sms(
-        message_sid="SM-fac-1", from_phone="+19995550001", body="swap please"
+        message_sid="SM-fac-1",
+        from_phone="+19995550001",
+        body="swap 2026-07-08 to Parent B",
     )
     assert first["status"] == "waiting"
 

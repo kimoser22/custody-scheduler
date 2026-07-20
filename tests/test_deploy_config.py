@@ -20,6 +20,19 @@ def test_resolve_database_url_reads_env(monkeypatch: pytest.MonkeyPatch) -> None
     assert connection_module.resolve_database_url() == "sqlite:////data/custody.db"
 
 
+def test_sql_echo_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SQL_ECHO", raising=False)
+    assert connection_module.sql_echo_enabled() is False
+
+
+def test_sql_echo_enabled_by_explicit_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SQL_ECHO", "1")
+    assert connection_module.sql_echo_enabled() is True
+
+    monkeypatch.setenv("SQL_ECHO", "0")
+    assert connection_module.sql_echo_enabled() is False
+
+
 def test_parse_allowed_origins_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
     assert main_module.parse_allowed_origins() == ["http://localhost:3000"]
