@@ -8,11 +8,17 @@ def resolve_database_url() -> str:
     return os.getenv("DATABASE_URL", "sqlite:///./custody.db")
 
 
+def sql_echo_enabled() -> bool:
+    # Off by default: echo logs every statement and its bound parameters
+    # (phone numbers, override descriptions) — must not stream to shipped logs.
+    return os.getenv("SQL_ECHO", "") == "1"
+
+
 DATABASE_URL = resolve_database_url()
 
 engine = create_engine(
     DATABASE_URL,
-    echo=True,
+    echo=sql_echo_enabled(),
     connect_args={"check_same_thread": False},
 )
 
