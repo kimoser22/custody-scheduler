@@ -2,9 +2,11 @@
 
 export const PRIVACY_TITLE = "Privacy Policy";
 
-export const PRIVACY_BODY = `Custody Scheduler is a private household scheduling application. Phone numbers are used only to send custody-scheduling messages between consented family members.
+export const PRIVACY_BODY = `Data Collection and Usage: We collect your mobile phone number exclusively to send you automated calendar schedule notifications and custody swap requests for our private household scheduling application.
 
-No mobile information will be shared with third parties or affiliates for marketing or promotional purposes. All other categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties. We do not sell personal information.`;
+Message Disclosures: Message frequency varies, approximately 10 messages per month. Message and data rates may apply.
+
+Data Sharing: We do not share, sell, or provide your mobile phone number or messaging consent data to third parties or affiliates for marketing or promotional purposes.`;
 
 export const TERMS_TITLE = "Terms and Conditions";
 
