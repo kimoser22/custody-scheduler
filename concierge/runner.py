@@ -10,6 +10,32 @@ from concierge.graph import build_concierge_graph
 from concierge.nodes import ConciergeDeps
 from concierge.ports import IdempotencyStore, SenderResolver
 
+_STOP_KEYWORDS = frozenset(
+    {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
+)
+_HELP_KEYWORDS = frozenset({"help"})
+
+_OPT_OUT_REPLY = (
+    "You have opted out of Custody Scheduler messages. "
+    "No further scheduling texts will be sent to this number. "
+    "Reply HELP for help."
+)
+_HELP_REPLY = (
+    "Custody Scheduler: private household scheduling texts. "
+    "Message frequency varies. Msg & data rates may apply. "
+    "Reply STOP to opt out."
+)
+
+
+def classify_keyword(body: str) -> str | None:
+    """Return 'stop' or 'help' when the entire body is a reserved keyword."""
+    token = body.strip().lower()
+    if token in _STOP_KEYWORDS:
+        return "stop"
+    if token in _HELP_KEYWORDS:
+        return "help"
+    return None
+
 
 class ConciergeRunner(Protocol):
     def handle_sms(
@@ -57,6 +83,15 @@ class LangGraphConciergeRunner:
         # Claiming here, before any invoke(), is what prevents that.
         if not self.deps.idempotency.claim(message_sid):
             return {"status": "dropped", "reason": "duplicate_message_sid"}
+
+        keyword = classify_keyword(body)
+        if keyword == "stop":
+            self.registry.clear(from_phone)
+            self.deps.sms.send(to=from_phone, body=_OPT_OUT_REPLY)
+            return {"status": "ok", "reason": "opt_out"}
+        if keyword == "help":
+            self.deps.sms.send(to=from_phone, body=_HELP_REPLY)
+            return {"status": "ok", "reason": "help"}
 
         open_thread = self.registry.get(from_phone)
         if open_thread:

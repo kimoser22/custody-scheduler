@@ -196,3 +196,12 @@ Notes:
 
 - Local: leave `NEXT_PUBLIC_API_URL` unset so Next rewrites proxy to `127.0.0.1:8000`.
 - `npm run build` uses the committed `frontend/openapi/schema.json` (no localhost OpenAPI fetch). Set `API_OPENAPI_URL` only when regenerating types from a running API.
+
+### A2P campaign Privacy / Terms URLs
+
+After Vercel is live, enter these in the Twilio campaign registry:
+
+- Privacy: `https://YOUR_APP.vercel.app/privacy`
+- Terms: `https://YOUR_APP.vercel.app/terms`
+
+Copy lives in `frontend/src/lib/legal-copy.ts`. SMS `STOP` / `HELP` are handled in `concierge/runner.py` before any swap handshake.

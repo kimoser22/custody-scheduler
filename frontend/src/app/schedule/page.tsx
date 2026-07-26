@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { DevAuthBar } from "@/components/DevAuthBar";
+import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
@@ -128,6 +129,8 @@ export default function SchedulePage() {
           />
         </div>
       ) : null}
+
+      <LegalFooter />
     </main>
   );
 }
