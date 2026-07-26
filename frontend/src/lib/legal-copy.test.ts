@@ -4,8 +4,11 @@ import { PRIVACY_BODY, TERMS_BODY } from "@/lib/legal-copy";
 
 describe("legal-copy (A2P campaign requirements)", () => {
   it("privacy states mobile info is not shared with third parties for marketing", () => {
-    expect(PRIVACY_BODY.toLowerCase()).toContain(
-      "no mobile information will be shared with third parties or affiliates for marketing or promotional purposes",
+    expect(PRIVACY_BODY).toContain(
+      "No mobile information will be shared with third parties or affiliates for marketing or promotional purposes.",
+    );
+    expect(PRIVACY_BODY).toContain(
+      "All other categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties.",
     );
   });
 
