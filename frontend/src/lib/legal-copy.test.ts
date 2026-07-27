@@ -22,14 +22,18 @@ describe("legal-copy (A2P campaign requirements)", () => {
     );
   });
 
-  it("terms describe private non-commercial household scheduling", () => {
+  it("terms name Moser Custody Concierge and describe private scheduling", () => {
+    expect(TERMS_BODY).toContain("Moser Custody Concierge");
     const lower = TERMS_BODY.toLowerCase();
     expect(lower).toContain("private");
     expect(lower).toContain("non-commercial");
     expect(lower).toMatch(/household scheduling|custody scheduling/);
   });
 
-  it("terms include carrier-required messaging disclosures", () => {
+  it("terms include carrier liability and messaging disclosures", () => {
+    expect(TERMS_BODY).toContain(
+      "Carriers are not liable for any delayed or undelivered messages",
+    );
     expect(TERMS_BODY).toContain("Message frequency varies");
     expect(TERMS_BODY).toContain("Message and data rates may apply");
     expect(TERMS_BODY).toContain("Reply STOP to opt out");

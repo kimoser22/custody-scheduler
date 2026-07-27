@@ -10,6 +10,10 @@ Data Sharing: We do not share, sell, or provide your mobile phone number or mess
 
 export const TERMS_TITLE = "Terms and Conditions";
 
-export const TERMS_BODY = `This is a private, non-commercial application used exclusively for household scheduling. Message frequency varies. Message and data rates may apply. Reply STOP to opt out of messaging. Reply HELP for help.
+export const TERMS_BODY = `Moser Custody Concierge is a private, non-commercial household scheduling application. Message frequency varies, approximately 10 messages per month. Message and data rates may apply.
+
+Carriers are not liable for any delayed or undelivered messages.
+
+Opt-out and help: Reply STOP to opt out of messaging. Reply HELP for help.
 
 Access is limited to authorized family members. Unauthorized use is not permitted.`;

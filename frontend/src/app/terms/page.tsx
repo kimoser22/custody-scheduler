@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { TermsBody } from "@/components/TermsBody";
 import { TERMS_BODY, TERMS_TITLE } from "@/lib/legal-copy";
 
 export const metadata = {
@@ -15,11 +16,7 @@ export default function TermsPage() {
         </Link>
       </p>
       <h1 className="mb-4 text-2xl font-bold">{TERMS_TITLE}</h1>
-      {TERMS_BODY.split("\n\n").map((paragraph) => (
-        <p key={paragraph.slice(0, 32)} className="mb-4 text-slate-800 leading-relaxed">
-          {paragraph}
-        </p>
-      ))}
+      <TermsBody body={TERMS_BODY} />
     </main>
   );
 }
