@@ -41,6 +41,16 @@ def _seed_passcode_hash(env_var: str) -> str | None:
     return hash_passcode(raw) if raw else None
 
 
+# Declarative seed roster: (user_id, role, phone, custody_label, passcode_env).
+# Reconciled per-user on boot so adding an entry here, or setting a passcode
+# secret that wasn't present at first seed, takes effect on the next restart.
+_SEED_USERS: tuple[tuple[int, str, str | None, str | None, str], ...] = (
+    (101, "Parent", "+15550001", "Parent A", "SEED_PARENT_A_PASSCODE"),
+    (102, "Parent", "+15550002", "Parent B", "SEED_PARENT_B_PASSCODE"),
+    (2, "Viewer", None, None, "SEED_VIEWER_PASSCODE"),
+)
+
+
 def ensure_default_seed_data(session: Session) -> None:
     family = session.get(FamilyLink, DEFAULT_FAMILY_ID)
     if family is None:
@@ -62,41 +72,29 @@ def ensure_default_seed_data(session: Session) -> None:
         )
         session.commit()
 
-    existing_users = session.exec(
-        select(UserTable).where(UserTable.family_id == DEFAULT_FAMILY_ID)
-    ).all()
-    if not existing_users:
-        session.add(
-            UserTable(
-                id=101,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Parent",
-                phone="+15550001",
-                custody_label="Parent A",
-                passcode_hash=_seed_passcode_hash("SEED_PARENT_A_PASSCODE"),
+    # Reconcile the seed roster per-user instead of all-or-nothing: insert any
+    # missing user, and back-fill a NULL passcode_hash from its env var when the
+    # secret is now set. Never overwrite an already-set hash — a *changed*
+    # passcode is applied only by an explicit volume reset (see README).
+    for user_id, role, phone, custody_label, passcode_env in _SEED_USERS:
+        user = session.get(UserTable, user_id)
+        if user is None:
+            session.add(
+                UserTable(
+                    id=user_id,
+                    family_id=DEFAULT_FAMILY_ID,
+                    role=role,
+                    phone=phone,
+                    custody_label=custody_label,
+                    passcode_hash=_seed_passcode_hash(passcode_env),
+                )
             )
-        )
-        session.add(
-            UserTable(
-                id=102,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Parent",
-                phone="+15550002",
-                custody_label="Parent B",
-                passcode_hash=_seed_passcode_hash("SEED_PARENT_B_PASSCODE"),
-            )
-        )
-        session.add(
-            UserTable(
-                id=2,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Viewer",
-                phone=None,
-                custody_label=None,
-                passcode_hash=_seed_passcode_hash("SEED_VIEWER_PASSCODE"),
-            )
-        )
-        session.commit()
+        elif user.passcode_hash is None:
+            backfilled = _seed_passcode_hash(passcode_env)
+            if backfilled is not None:
+                user.passcode_hash = backfilled
+                session.add(user)
+    session.commit()
 
 
 @asynccontextmanager
