@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import date, datetime, timezone
 
 from langgraph.checkpoint.memory import MemorySaver
 from sqlmodel import Session, select
 
 from concierge.adapters import EnvTwilioSmsGateway, HeuristicIntentParser, SqlSenderResolver
 from concierge.nodes import ConciergeDeps
+from concierge.ports import IntentParser
 from concierge.repos import SqlAuditRepository, SqlIdempotencyStore, SqlOverrideRepository
 from concierge.runner import InMemoryThreadRegistry, LangGraphConciergeRunner
 from database.connection import engine
@@ -39,6 +41,30 @@ def warn_ephemeral_handshake_state(logger: logging.Logger | None = None) -> None
     )
 
 
+def _build_parser(today: date) -> IntentParser:
+    """Heuristic-only by default; with ANTHROPIC_API_KEY set, compose the LLM
+    fallback behind it (well-formed messages never cost a token; ambiguous
+    ones get one bounded Claude call before falling back to clarification).
+    Imported lazily so unconfigured deploys never touch the anthropic SDK."""
+    heuristic = HeuristicIntentParser()
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return heuristic
+
+    from concierge.llm_parser import (
+        DEFAULT_MODEL,
+        CompositeIntentParser,
+        LLMIntentParser,
+        build_anthropic_client,
+    )
+
+    llm = LLMIntentParser(
+        build_anthropic_client(),
+        model=os.getenv("CONCIERGE_LLM_MODEL", DEFAULT_MODEL),
+        today=today,
+    )
+    return CompositeIntentParser(heuristic, llm)
+
+
 def build_default_runner(session: Session | None = None) -> LangGraphConciergeRunner:
     session = session or Session(engine)
 
@@ -51,14 +77,15 @@ def build_default_runner(session: Session | None = None) -> LangGraphConciergeRu
             (user.id, user.phone, user.custody_label or "Parent")
         )
 
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     deps = ConciergeDeps(
         sms=EnvTwilioSmsGateway(),
-        parser=HeuristicIntentParser(),
+        parser=_build_parser(today=now.date()),
         resolver=SqlSenderResolver(session),
         overrides=SqlOverrideRepository(session),
         audit=SqlAuditRepository(session),
         idempotency=SqlIdempotencyStore(session),
-        now=datetime.now(timezone.utc).replace(tzinfo=None),
+        now=now,
         counterparty_by_family={},
         parents_by_family=parents_by_family,
     )

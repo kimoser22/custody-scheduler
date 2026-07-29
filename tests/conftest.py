@@ -47,6 +47,16 @@ def _isolate_twilio_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_anthropic_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The concierge factory selects its intent parser by ANTHROPIC_API_KEY
+    (LLM fallback when set, heuristic-only otherwise). Strip a developer's real
+    key so tests never construct a live-capable client and factory selection
+    stays deterministic; tests that need the LLM path set their own dummy."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CONCIERGE_LLM_MODEL", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _auth_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_current_user verifies HMAC-signed tokens against AUTH_SIGNING_SECRET.
     Provide a stable test secret so real-token request paths work; tests that
