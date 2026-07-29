@@ -64,6 +64,45 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/token `
 
 Use **Previous / Next** to move between months.
 
+## Email notifications
+
+The web calendar's core loop is *request → the other parent approves*, so the
+other parent has to find out a request exists. Email needs no carrier approval,
+which makes it the notification channel available before A2P clears.
+
+| Event | Who gets the email |
+|-------|--------------------|
+| Override requested | The **other** parent (never the requester) |
+| Request approved / declined | The **original requester** |
+
+Configure with a Gmail app password (2FA must be enabled on that account):
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=<app password>
+SMTP_FROM=you@gmail.com
+SEED_PARENT_A_EMAIL=parent-a@example.com
+SEED_PARENT_B_EMAIL=parent-b@example.com
+```
+
+With any of the `SMTP_*` values missing, notifications are a **silent no-op** —
+everything else behaves identically, so local dev and unconfigured deploys need
+no special casing.
+
+Two guarantees worth knowing, both covered by tests:
+
+- **A mail failure never fails an override.** Sending happens in a background
+  task and every exception is swallowed and logged. The custody record is what
+  matters; the email about it is not.
+- **A missing address is not an error.** A parent with no email simply isn't
+  notified; the request still succeeds.
+
+`SEED_PARENT_*_EMAIL` is back-filled onto existing users on restart when their
+email is still empty, so adding it to an already-seeded database needs no reset
+(an address that is already set is never overwritten — same rule as passcodes).
+
 ## SMS double-handshake concierge
 
 SMS sits **alongside** the web UI. A swap becomes calendar-visible only after:

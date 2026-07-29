@@ -57,6 +57,23 @@ def _isolate_anthropic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_email_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SmtpEmailNotifier only reaches the network when every SMTP_* var is set,
+    and seeding reads SEED_*_EMAIL. Strip both so no test can mail a real
+    address; tests that exercise the transport set their own fake values."""
+    for name in (
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USERNAME",
+        "SMTP_PASSWORD",
+        "SMTP_FROM",
+        "SEED_PARENT_A_EMAIL",
+        "SEED_PARENT_B_EMAIL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _auth_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_current_user verifies HMAC-signed tokens against AUTH_SIGNING_SECRET.
     Provide a stable test secret so real-token request paths work; tests that

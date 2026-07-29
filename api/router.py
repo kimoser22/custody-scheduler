@@ -1,11 +1,24 @@
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from api.dependencies import CurrentUser, SessionDep, get_current_user, require_parent_role
+from api.dependencies import (
+    AuditDep,
+    CurrentUser,
+    NotifierDep,
+    SessionDep,
+    get_current_user,
+    require_parent_role,
+)
+from core.notifications import (
+    Notifier,
+    override_decided_email,
+    override_requested_email,
+)
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
 from core.models import (
@@ -17,7 +30,9 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
-from database.schema import BaselineTable, OverrideTable
+from database.schema import BaselineTable, OverrideTable, UserTable
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 schedule_router = APIRouter(prefix="/api/v1/schedule")
@@ -57,6 +72,54 @@ def _to_domain(row: OverrideTable) -> ScheduleOverride:
     )
 
 
+def _user(session: Session, user_id: int) -> UserTable | None:
+    return session.get(UserTable, user_id)
+
+
+def _other_parent(
+    session: Session, family_id: int, actor_user_id: int
+) -> UserTable | None:
+    return session.exec(
+        select(UserTable).where(
+            UserTable.family_id == family_id,
+            UserTable.role == "Parent",
+            UserTable.id != actor_user_id,
+        )
+    ).first()
+
+
+def _label(user: UserTable | None, fallback: str) -> str:
+    if user is None or not user.custody_label:
+        return fallback
+    return user.custody_label
+
+
+def _send_safely(notifier: Notifier, to: str, subject: str, body: str) -> None:
+    """Runs in a background task. A notification is a side effect of a custody
+    decision, never a precondition — no failure here may surface to the caller
+    or bring down the worker."""
+    try:
+        notifier.send(to=to, subject=subject, body=body)
+    except Exception:  # noqa: BLE001 — deliberately last-resort
+        _logger.warning("Notification to %s failed", to, exc_info=True)
+
+
+def _queue_email(
+    background_tasks: BackgroundTasks,
+    notifier: Notifier,
+    *,
+    to: str | None,
+    subject: str,
+    body: str,
+) -> None:
+    """Schedule a notification. The recipient address and the full message must
+    already be resolved: the request-scoped DB session is closed by the time the
+    background task runs, so no ORM object may cross this boundary."""
+    if not to:
+        return
+    background_tasks.add_task(_send_safely, notifier, to, subject, body)
+
+
 def _load_overrides(session: Session, family_id: int) -> list[ScheduleOverride]:
     rows = session.exec(
         select(OverrideTable).where(
@@ -94,10 +157,16 @@ def list_pending_overrides(
     session: SessionDep,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> list[ScheduleOverride]:
+    # Exclude requests whose 24h window has closed. Without this an expired
+    # request still shows as "waiting for the other parent" and the approve
+    # button 410s. A read endpoint does not write, so flipping the stored status
+    # stays with the decision path and the sweep endpoint below.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = session.exec(
         select(OverrideTable).where(
             OverrideTable.family_id == current_user.family_id,
             OverrideTable.status == OverrideStatus.PENDING.value,
+            OverrideTable.expires_at > now,
         )
     ).all()
     return [_to_domain(row) for row in rows]
@@ -106,7 +175,10 @@ def list_pending_overrides(
 @schedule_router.post("/overrides")
 def create_override(
     override: ScheduleOverride,
+    background_tasks: BackgroundTasks,
     session: SessionDep,
+    notifier: NotifierDep,
+    audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -124,6 +196,31 @@ def create_override(
     session.add(row)
     session.commit()
     session.refresh(row)
+
+    audit.append(
+        family_id=current_user.family_id,
+        actor_role=current_user.role,
+        action_type="override_requested",
+        description=f"Override {row.id} requested for {row.override_date}",
+        previous_state_id=row.id,
+        timestamp=now,
+    )
+
+    counterparty = _other_parent(session, current_user.family_id, current_user.id)
+    subject, body = override_requested_email(
+        requester_label=_label(_user(session, current_user.id), current_user.role),
+        override_date=row.override_date,
+        override_type=row.override_type,
+        description=row.description,
+        expires_at=row.expires_at,
+    )
+    _queue_email(
+        background_tasks,
+        notifier,
+        to=counterparty.email if counterparty else None,
+        subject=subject,
+        body=body,
+    )
     return _to_domain(row)
 
 
@@ -131,7 +228,10 @@ def create_override(
 def decide_override_request(
     override_id: int,
     decision_request: OverrideDecisionRequest,
+    background_tasks: BackgroundTasks,
     session: SessionDep,
+    notifier: NotifierDep,
+    audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
     row = session.get(OverrideTable, override_id)
@@ -201,6 +301,30 @@ def decide_override_request(
         ) from None
 
     session.refresh(row)
+
+    approved = result.new_status == OverrideStatus.APPROVED
+    audit.append(
+        family_id=current_user.family_id,
+        actor_role=current_user.role,
+        action_type="override_approved" if approved else "override_rejected",
+        description=f"Override {row.id} {row.status.lower()} for {row.override_date}",
+        previous_state_id=row.id,
+        timestamp=now,
+    )
+
+    requester = _user(session, row.requested_by_user_id)
+    subject, body = override_decided_email(
+        decider_label=_label(_user(session, current_user.id), current_user.role),
+        override_date=row.override_date,
+        approved=approved,
+    )
+    _queue_email(
+        background_tasks,
+        notifier,
+        to=requester.email if requester else None,
+        subject=subject,
+        body=body,
+    )
     return _to_domain(row)
 
 
