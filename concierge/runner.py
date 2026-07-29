@@ -8,7 +8,7 @@ from langgraph.types import Command
 
 from concierge.graph import build_concierge_graph
 from concierge.nodes import ConciergeDeps
-from concierge.ports import IdempotencyStore, SenderResolver
+from concierge.ports import IdempotencyStore, SenderResolver, ThreadRegistry
 
 _STOP_KEYWORDS = frozenset(
     {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
@@ -45,7 +45,11 @@ class ConciergeRunner(Protocol):
 
 @dataclass
 class InMemoryThreadRegistry:
-    """Maps a phone number to an open LangGraph thread awaiting reply."""
+    """Maps a phone number to an open LangGraph thread awaiting reply.
+
+    Process-local: used by the simulator and tests. Production uses
+    SqlThreadRegistry so a paused handshake survives a restart.
+    """
 
     by_phone: dict[str, str] = field(default_factory=dict)
 
@@ -62,7 +66,7 @@ class InMemoryThreadRegistry:
 @dataclass
 class LangGraphConciergeRunner:
     deps: ConciergeDeps
-    registry: InMemoryThreadRegistry = field(default_factory=InMemoryThreadRegistry)
+    registry: ThreadRegistry = field(default_factory=InMemoryThreadRegistry)
     checkpointer: Any | None = None
     _graph: Any = field(init=False)
 

@@ -44,6 +44,16 @@ class IdempotencyStore(Protocol):
     def claim(self, message_sid: str) -> bool: ...
 
 
+class ThreadRegistry(Protocol):
+    """Maps a phone number to the open LangGraph thread awaiting its reply."""
+
+    def get(self, phone: str) -> str | None: ...
+
+    def set(self, phone: str, thread_id: str) -> None: ...
+
+    def clear(self, phone: str) -> None: ...
+
+
 class AuditRepository(Protocol):
     def append(
         self,

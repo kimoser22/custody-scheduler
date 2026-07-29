@@ -4,21 +4,35 @@ import pytest
 from sqlmodel import Session
 
 from concierge.adapters import HeuristicIntentParser
-from concierge.factory import build_default_runner, warn_ephemeral_handshake_state
+from concierge.factory import build_default_runner, describe_handshake_durability
 from concierge.llm_parser import CompositeIntentParser, LLMIntentParser
 from concierge.repos import SqlOverrideRepository
 from core.models import OverrideStatus
 from database.schema import FamilyLink, UserTable
 
 
-def test_warns_that_in_flight_handshakes_are_ephemeral(
-    caplog: pytest.LogCaptureFixture,
+def test_startup_reports_handshakes_survive_restarts(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The double-handshake checkpoint + registry live only in process memory,
-    so a restart drops in-flight conversations. Startup must say so loudly
-    rather than lose them silently."""
-    with caplog.at_level(logging.WARNING):
-        warn_ephemeral_handshake_state()
+    """Handshakes are checkpointed to the database now, so startup should say
+    where that state lives rather than warn about losing it."""
+    monkeypatch.setenv("DATABASE_URL", "sqlite:////data/custody.db")
+    with caplog.at_level(logging.INFO):
+        describe_handshake_durability()
+
+    messages = [record.getMessage().lower() for record in caplog.records]
+    assert any("survives restarts" in message for message in messages)
+    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+
+
+def test_startup_still_warns_when_the_database_is_ephemeral(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An in-memory database cannot checkpoint across connections, so the old
+    caveat still applies there and must be stated."""
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    with caplog.at_level(logging.INFO):
+        describe_handshake_durability()
 
     messages = [record.getMessage().lower() for record in caplog.records]
     assert any(

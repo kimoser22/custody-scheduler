@@ -1,11 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from concierge.ports import OverrideConflictError
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
-from database.schema import AuditLogTable, OverrideTable, TwilioIdempotencyTable
+from database.schema import (
+    AuditLogTable,
+    HandshakeThreadTable,
+    OverrideTable,
+    TwilioIdempotencyTable,
+)
 
 
 def _to_domain(row: OverrideTable) -> ScheduleOverride:
@@ -119,6 +124,41 @@ class SqlOverrideRepository:
             ) from None
         self._session.refresh(row)
         return _to_domain(row)
+
+
+class SqlThreadRegistry:
+    """Durable phone -> open-thread mapping.
+
+    Same interface as InMemoryThreadRegistry, backed by a table so a paused
+    handshake can still be routed to its thread after a restart or deploy.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, phone: str) -> str | None:
+        row = self._session.get(HandshakeThreadTable, phone)
+        return row.thread_id if row else None
+
+    def set(self, phone: str, thread_id: str) -> None:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        row = self._session.get(HandshakeThreadTable, phone)
+        if row is None:
+            row = HandshakeThreadTable(
+                phone=phone, thread_id=thread_id, updated_at=now
+            )
+        else:
+            row.thread_id = thread_id
+            row.updated_at = now
+        self._session.add(row)
+        self._session.commit()
+
+    def clear(self, phone: str) -> None:
+        row = self._session.get(HandshakeThreadTable, phone)
+        if row is None:
+            return
+        self._session.delete(row)
+        self._session.commit()
 
 
 class SqlAuditRepository:
