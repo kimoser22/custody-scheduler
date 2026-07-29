@@ -64,6 +64,45 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/token `
 
 Use **Previous / Next** to move between months.
 
+## Email notifications
+
+The web calendar's core loop is *request → the other parent approves*, so the
+other parent has to find out a request exists. Email needs no carrier approval,
+which makes it the notification channel available before A2P clears.
+
+| Event | Who gets the email |
+|-------|--------------------|
+| Override requested | The **other** parent (never the requester) |
+| Request approved / declined | The **original requester** |
+
+Configure with a Gmail app password (2FA must be enabled on that account):
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=<app password>
+SMTP_FROM=you@gmail.com
+SEED_PARENT_A_EMAIL=parent-a@example.com
+SEED_PARENT_B_EMAIL=parent-b@example.com
+```
+
+With any of the `SMTP_*` values missing, notifications are a **silent no-op** —
+everything else behaves identically, so local dev and unconfigured deploys need
+no special casing.
+
+Two guarantees worth knowing, both covered by tests:
+
+- **A mail failure never fails an override.** Sending happens in a background
+  task and every exception is swallowed and logged. The custody record is what
+  matters; the email about it is not.
+- **A missing address is not an error.** A parent with no email simply isn't
+  notified; the request still succeeds.
+
+`SEED_PARENT_*_EMAIL` is back-filled onto existing users on restart when their
+email is still empty, so adding it to an already-seeded database needs no reset
+(an address that is already set is never overwritten — same rule as passcodes).
+
 ## SMS double-handshake concierge
 
 SMS sits **alongside** the web UI. A swap becomes calendar-visible only after:
@@ -76,6 +115,24 @@ SMS sits **alongside** the web UI. A swap becomes calendar-visible only after:
 If the inbound message doesn't clearly specify **both** a date and a parent
 (e.g. `swap 2026-07-08 to Parent B`), the concierge replies asking for
 clarification and creates no draft — it never guesses a date or parent.
+
+### Intent parsing (two layers, one fail-safe contract)
+
+`HeuristicIntentParser` runs first: deterministic matching for an ISO date plus
+`Parent A` / `Parent B`. It is free, instant, and handles well-formed messages.
+
+When `ANTHROPIC_API_KEY` is set, a Claude fallback (`LLMIntentParser`) is
+consulted **only if the heuristic declines** — that's what reads natural
+phrasing like `swap next Friday to Parent B`, resolving relative dates against
+today. Well-formed messages never cost a token. Model defaults to
+`claude-opus-4-8`, overridable with `CONCIERGE_LLM_MODEL`.
+
+**Both layers fail the same way, on purpose.** An API error, a timeout, a
+refusal, a missing field, or a date that isn't a real calendar date all return
+"unclear" — which sends the clarification SMS above. Neither layer is ever
+allowed to guess, because a wrong parse silently drafts the wrong custody
+handoff. With no API key the behavior is exactly the deterministic parser, and
+the `anthropic` SDK is imported lazily so an unconfigured deploy never loads it.
 
 Webhook: `POST /api/v1/twilio/sms` (Twilio form fields `MessageSid`, `From`, `Body`).
 
@@ -167,10 +224,57 @@ fly deploy
 
 Notes:
 
-- Run **one machine / one uvicorn process** (as in `fly.toml` + Dockerfile `CMD`) so in-memory SMS handshakes survive between requests. **In-flight handshakes are not durable** — the LangGraph checkpoint and phone→thread registry live only in process memory, so any restart or deploy drops conversations paused mid-handshake (the app logs a warning about this at startup). Making them survive restarts would require a durable checkpointer; deferred for now.
+- **Run exactly one machine / one uvicorn process.** This is how the app is currently configured — `fly.toml` (`min_machines_running = 1`, `auto_stop_machines = 'off'`) plus the Dockerfile `CMD` (a single uvicorn process, no `--workers`). Note that `min_machines_running` is a floor, not a ceiling: nothing prevents `fly scale count 2`, so this is a rule you keep, not one Fly keeps for you. Two independent reasons:
+  - **SQLite volume — data integrity, applies now.** The `sqlite_data` volume attaches to exactly one machine at a time. A second machine does not share the database; it gets its own empty volume, producing two silently diverging copies of the calendar. This holds regardless of whether SMS is live.
+  - **In-memory handshake state — applies once SMS is live.** The LangGraph checkpoint and phone→thread registry live only in process memory, so any restart or deploy drops conversations paused mid-handshake (the app logs a warning about this at startup). A durable checkpointer is the deferred fix.
+- **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Be deliberate with the `fly ssh console -C "rm -f /data/custody.db"` step in the re-seed runbook above — on Fly that permanently deletes real family data. It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly.
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
 - The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
 - `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
+- `ANTHROPIC_API_KEY` is **intentionally not set on Fly** while A2P 10DLC review is pending — the LLM intent-parser fallback is phase 2, alongside live carrier SMS. Parsing is env-gated, so with the secret unset the API runs the deterministic parser only (no LLM calls, no cost, no code change). Before re-adding it, set a spend limit on a dedicated Anthropic Console workspace and scope the key to that workspace, so a runaway can't reach the main balance.
+
+### Private family launch — seed & re-seed
+
+Login passcodes come from the `SEED_*_PASSCODE` secrets, hashed into the `users`
+rows when they are first created. Seeding **reconciles per-user on boot**
+(`ensure_default_seed_data` in `main.py`): it inserts any missing seed user and
+**back-fills a NULL passcode** from its secret when that secret is now set — but
+it **never overwrites a passcode that is already set**.
+
+Consequences:
+
+- **Enabling login for the first time** (or after adding a secret that wasn't set
+  when the volume was first seeded): just set the secret and redeploy — the next
+  boot back-fills the NULL hash. No reset needed.
+
+  ```powershell
+  fly secrets set SEED_PARENT_A_PASSCODE=... SEED_PARENT_B_PASSCODE=... SEED_VIEWER_PASSCODE=...
+  fly deploy   # or: fly apps restart custody-scheduler-api
+  ```
+
+- **Changing an already-set passcode** requires a full re-seed, because the stored
+  hash is never overwritten. Reset the volume's DB and let the fresh seed re-hash
+  (destroys existing overrides — fine pre-launch):
+
+  ```powershell
+  fly secrets set SEED_PARENT_A_PASSCODE=<new-known-value>   # + others as needed
+  fly ssh console -C "rm -f /data/custody.db"
+  fly apps restart custody-scheduler-api
+  ```
+
+- **Verify** a passcode works (use the value you set; never commit real passcodes):
+
+  ```powershell
+  curl.exe -X POST https://custody-scheduler-api.fly.dev/api/v1/auth/token `
+    -H "Content-Type: application/json" `
+    -d '{"user_id": 101, "passcode": "<value>"}'   # -> access_token on success
+  ```
+
+  A `401` means the seeded user has no matching hash — re-check the secret, then
+  re-seed. (In PowerShell use `curl.exe`, not the `curl` alias.)
+
+Both grandparents share the single **Viewer** login (`SEED_VIEWER_PASSCODE`);
+viewers are read-only, so no separate identity is needed.
 
 ## Deploy frontend to Vercel
 

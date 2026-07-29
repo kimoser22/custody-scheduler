@@ -3,7 +3,9 @@ import logging
 import pytest
 from sqlmodel import Session
 
+from concierge.adapters import HeuristicIntentParser
 from concierge.factory import build_default_runner, warn_ephemeral_handshake_state
+from concierge.llm_parser import CompositeIntentParser, LLMIntentParser
 from concierge.repos import SqlOverrideRepository
 from core.models import OverrideStatus
 from database.schema import FamilyLink, UserTable
@@ -79,3 +81,34 @@ def test_handshake_state_persists_across_separate_runner_builds(
     assert override is not None
     assert override.status == OverrideStatus.APPROVED
     assert override.is_active is True
+
+
+def test_parser_is_heuristic_only_without_api_key(
+    session_fixture: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No ANTHROPIC_API_KEY -> today's behavior exactly; the LLM path (and the
+    anthropic dependency) must not be exercised at all."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner = build_default_runner(session=session_fixture)
+    assert isinstance(runner.deps.parser, HeuristicIntentParser)
+
+
+def test_parser_is_composite_with_llm_fallback_when_key_set(
+    session_fixture: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy")
+    runner = build_default_runner(session=session_fixture)
+    parser = runner.deps.parser
+    assert isinstance(parser, CompositeIntentParser)
+    assert isinstance(parser.primary, HeuristicIntentParser)
+    assert isinstance(parser.fallback, LLMIntentParser)
+    assert parser.fallback.model == "claude-opus-4-8"
+
+
+def test_llm_model_is_overridable_via_env(
+    session_fixture: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy")
+    monkeypatch.setenv("CONCIERGE_LLM_MODEL", "claude-haiku-4-5")
+    runner = build_default_runner(session=session_fixture)
+    assert runner.deps.parser.fallback.model == "claude-haiku-4-5"

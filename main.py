@@ -1,6 +1,7 @@
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import NamedTuple
 
 from dotenv import load_dotenv
 
@@ -41,6 +42,45 @@ def _seed_passcode_hash(env_var: str) -> str | None:
     return hash_passcode(raw) if raw else None
 
 
+def ensure_user_email_column(engine_to_patch) -> None:
+    """Add users.email in place on databases created before the column existed.
+
+    SQLModel.metadata.create_all() creates missing *tables*, never missing
+    *columns* — so an existing volume would keep a users table with no email
+    and every query would fail with "no such column: users.email", crashing the
+    app on boot. Idempotent: a no-op once the column is present.
+    """
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(users)")
+        }
+        if not columns or "email" in columns:
+            # No users table yet (create_all handles it), or already migrated.
+            return
+        connection.exec_driver_sql("ALTER TABLE users ADD COLUMN email VARCHAR")
+        connection.commit()
+
+
+class SeedUser(NamedTuple):
+    """One row of the declarative seed roster."""
+
+    user_id: int
+    role: str
+    phone: str | None
+    custody_label: str | None
+    passcode_env: str
+    email_env: str | None
+
+
+# Reconciled per-user on boot so adding an entry here, or setting a secret that
+# wasn't present at first seed, takes effect on the next restart.
+_SEED_USERS: tuple[SeedUser, ...] = (
+    SeedUser(101, "Parent", "+15550001", "Parent A", "SEED_PARENT_A_PASSCODE", "SEED_PARENT_A_EMAIL"),
+    SeedUser(102, "Parent", "+15550002", "Parent B", "SEED_PARENT_B_PASSCODE", "SEED_PARENT_B_EMAIL"),
+    SeedUser(2, "Viewer", None, None, "SEED_VIEWER_PASSCODE", None),
+)
+
+
 def ensure_default_seed_data(session: Session) -> None:
     family = session.get(FamilyLink, DEFAULT_FAMILY_ID)
     if family is None:
@@ -62,47 +102,48 @@ def ensure_default_seed_data(session: Session) -> None:
         )
         session.commit()
 
-    existing_users = session.exec(
-        select(UserTable).where(UserTable.family_id == DEFAULT_FAMILY_ID)
-    ).all()
-    if not existing_users:
-        session.add(
-            UserTable(
-                id=101,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Parent",
-                phone="+15550001",
-                custody_label="Parent A",
-                passcode_hash=_seed_passcode_hash("SEED_PARENT_A_PASSCODE"),
+    # Reconcile the seed roster per-user instead of all-or-nothing: insert any
+    # missing user, and back-fill a NULL passcode_hash or email from its env var
+    # when the secret is now set. Never overwrite an already-set value — a
+    # *changed* passcode is applied only by an explicit volume reset (see README).
+    for seed in _SEED_USERS:
+        user_id, role, phone, custody_label, passcode_env, email_env = seed
+        user = session.get(UserTable, user_id)
+        if user is None:
+            session.add(
+                UserTable(
+                    id=user_id,
+                    family_id=DEFAULT_FAMILY_ID,
+                    role=role,
+                    phone=phone,
+                    custody_label=custody_label,
+                    passcode_hash=_seed_passcode_hash(passcode_env),
+                    email=os.getenv(email_env) if email_env else None,
+                )
             )
-        )
-        session.add(
-            UserTable(
-                id=102,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Parent",
-                phone="+15550002",
-                custody_label="Parent B",
-                passcode_hash=_seed_passcode_hash("SEED_PARENT_B_PASSCODE"),
-            )
-        )
-        session.add(
-            UserTable(
-                id=2,
-                family_id=DEFAULT_FAMILY_ID,
-                role="Viewer",
-                phone=None,
-                custody_label=None,
-                passcode_hash=_seed_passcode_hash("SEED_VIEWER_PASSCODE"),
-            )
-        )
-        session.commit()
+            continue
+
+        if user.email is None and email_env:
+            seeded_email = os.getenv(email_env)
+            if seeded_email:
+                user.email = seeded_email
+                session.add(user)
+
+        if user.passcode_hash is None:
+            backfilled = _seed_passcode_hash(passcode_env)
+            if backfilled is not None:
+                user.passcode_hash = backfilled
+                session.add(user)
+    session.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     warn_ephemeral_handshake_state()
     SQLModel.metadata.create_all(engine)
+    # Must run after create_all (which handles fresh databases) and before any
+    # query touches users.email on a volume that predates the column.
+    ensure_user_email_column(engine)
     with Session(engine) as session:
         try:
             ensure_default_seed_data(session)

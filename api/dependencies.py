@@ -6,9 +6,28 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from api.auth_tokens import TokenError, verify_token
+from api.email_notifier import SmtpEmailNotifier
+from concierge.ports import AuditRepository
+from concierge.repos import SqlAuditRepository
+from core.notifications import Notifier
 from database.connection import get_session
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def get_notifier() -> Notifier:
+    """Overridden with a FakeNotifier in tests; a no-op unless SMTP_* is set."""
+    return SmtpEmailNotifier()
+
+
+NotifierDep = Annotated[Notifier, Depends(get_notifier)]
+
+
+def get_audit(session: SessionDep) -> AuditRepository:
+    return SqlAuditRepository(session)
+
+
+AuditDep = Annotated[AuditRepository, Depends(get_audit)]
 
 _BEARER_PREFIX = "Bearer "
 

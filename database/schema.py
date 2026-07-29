@@ -20,6 +20,9 @@ class UserTable(SQLModel, table=True):
     phone: str | None = None
     custody_label: str | None = None
     passcode_hash: str | None = None
+    # Nullable so existing rows stay valid; ensure_user_email_column() adds the
+    # column in place on databases created before it existed.
+    email: str | None = None
 
 
 class BaselineTable(SQLModel, table=True):
