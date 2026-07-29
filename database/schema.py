@@ -77,3 +77,18 @@ class TwilioIdempotencyTable(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     message_sid: str = Field(unique=True, index=True)
+
+
+class HandshakeThreadTable(SQLModel, table=True):
+    """Maps a phone number to the LangGraph thread awaiting its reply.
+
+    Durable half of the in-flight handshake state: the checkpointer holds the
+    paused graph, this says which conversation a given number owes a reply to.
+    Both must survive a restart or the reply cannot be routed back.
+    """
+
+    __tablename__ = "handshake_threads"
+
+    phone: str = Field(primary_key=True)
+    thread_id: str
+    updated_at: datetime

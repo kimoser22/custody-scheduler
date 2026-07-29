@@ -2,42 +2,103 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 from datetime import date, datetime, timezone
+from typing import Any
+from weakref import WeakKeyDictionary
 
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlmodel import Session, select
 
 from concierge.adapters import EnvTwilioSmsGateway, HeuristicIntentParser, SqlSenderResolver
 from concierge.nodes import ConciergeDeps
 from concierge.ports import IntentParser
-from concierge.repos import SqlAuditRepository, SqlIdempotencyStore, SqlOverrideRepository
-from concierge.runner import InMemoryThreadRegistry, LangGraphConciergeRunner
-from database.connection import engine
+from concierge.repos import (
+    SqlAuditRepository,
+    SqlIdempotencyStore,
+    SqlOverrideRepository,
+    SqlThreadRegistry,
+)
+from concierge.runner import LangGraphConciergeRunner
+from database.connection import engine, resolve_database_url
 from database.schema import UserTable
 
-# Shared across every build_default_runner() call within this process so that
-# a paused (interrupted) handshake survives between separate webhook requests.
-# Each request gets a fresh ConciergeDeps (DB session, "now"), but the
-# LangGraph checkpoint state and the phone->thread mapping persist here.
-_SHARED_CHECKPOINTER = MemorySaver()
-_SHARED_REGISTRY = InMemoryThreadRegistry()
+# One SqliteSaver per database file, shared across requests in this process.
+# The saved state itself lives on disk, so this is a connection cache rather
+# than the state — a restart rebuilds it and reads the same checkpoints back.
+_SQLITE_SAVERS: dict[str, SqliteSaver] = {}
+
+# Ephemeral databases keep the pre-durability behavior: one MemorySaver per
+# engine, shared across builds within the process. Keyed weakly so throwaway
+# test engines are collected with their saver.
+_MEMORY_SAVERS: WeakKeyDictionary[Any, MemorySaver] = WeakKeyDictionary()
 
 _logger = logging.getLogger(__name__)
 
 
-def warn_ephemeral_handshake_state(logger: logging.Logger | None = None) -> None:
-    """Announce, at startup, that in-flight SMS handshakes are not durable.
+def reset_checkpointer_cache() -> None:
+    """Drop cached connections. Tests use this to simulate a process restart:
+    anything that survives it came off disk."""
+    for saver in _SQLITE_SAVERS.values():
+        try:
+            saver.conn.close()
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            pass
+    _SQLITE_SAVERS.clear()
+    _MEMORY_SAVERS.clear()
 
-    The LangGraph checkpoint (_SHARED_CHECKPOINTER) and phone->thread registry
-    (_SHARED_REGISTRY) live only in this process's memory. Any restart or deploy
-    drops conversations paused mid-handshake — the other parent is never told.
-    Deferred tradeoff; a durable checkpointer would be needed to fix it. Until
-    then, at least fail loudly instead of silently losing state.
+
+def _shared_sqlite_saver(path: str) -> SqliteSaver:
+    saver = _SQLITE_SAVERS.get(path)
+    if saver is None:
+        # check_same_thread=False: FastAPI runs these sync endpoints in a
+        # threadpool. SqliteSaver serializes its own writes with a lock.
+        connection = sqlite3.connect(path, check_same_thread=False)
+        # WAL so a checkpoint write doesn't block a concurrent read.
+        connection.execute("PRAGMA journal_mode=WAL")
+        saver = SqliteSaver(connection)
+        saver.setup()
+        _SQLITE_SAVERS[path] = saver
+    return saver
+
+
+def _checkpointer_for(session: Session) -> Any:
+    """Durable when the session's database is a file; in-process when it isn't.
+
+    A second connection to ':memory:' opens a *different* database, so a
+    SqliteSaver there would silently persist nothing — falling back keeps the
+    rule honest rather than pretending to be durable.
     """
-    (logger or _logger).warning(
-        "SMS handshake state is in-memory only: any restart or deploy drops "
-        "conversations paused mid-handshake. Run a single process and avoid "
-        "restarts while handshakes are in flight."
+    bind = session.get_bind()
+    database = bind.url.database
+    if not database or database == ":memory:":
+        saver = _MEMORY_SAVERS.get(bind)
+        if saver is None:
+            saver = MemorySaver()
+            _MEMORY_SAVERS[bind] = saver
+        return saver
+    return _shared_sqlite_saver(database)
+
+
+def describe_handshake_durability(logger: logging.Logger | None = None) -> None:
+    """State at startup where in-flight handshakes are kept.
+
+    Paused conversations are checkpointed to the database, so a restart or
+    deploy no longer drops them. Warn only when the database is ephemeral, in
+    which case the old in-memory caveat still applies.
+    """
+    log = logger or _logger
+    database = resolve_database_url()
+    if ":memory:" in database:
+        log.warning(
+            "SMS handshake state is in-memory only: any restart drops "
+            "conversations paused mid-handshake."
+        )
+        return
+    log.info(
+        "SMS handshake state is checkpointed to %s and survives restarts.",
+        database,
     )
 
 
@@ -91,6 +152,6 @@ def build_default_runner(session: Session | None = None) -> LangGraphConciergeRu
     )
     return LangGraphConciergeRunner(
         deps=deps,
-        registry=_SHARED_REGISTRY,
-        checkpointer=_SHARED_CHECKPOINTER,
+        registry=SqlThreadRegistry(session),
+        checkpointer=_checkpointer_for(session),
     )

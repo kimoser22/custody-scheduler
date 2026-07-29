@@ -14,7 +14,7 @@ from sqlmodel import Session, SQLModel, select  # noqa: E402
 
 from api.auth_router import auth_router  # noqa: E402
 from api.passcodes import hash_passcode  # noqa: E402
-from concierge.factory import warn_ephemeral_handshake_state  # noqa: E402
+from concierge.factory import describe_handshake_durability  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
 from api.twilio_webhook import twilio_router  # noqa: E402
 from database.connection import engine  # noqa: E402
@@ -139,7 +139,7 @@ def ensure_default_seed_data(session: Session) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    warn_ephemeral_handshake_state()
+    describe_handshake_durability()
     SQLModel.metadata.create_all(engine)
     # Must run after create_all (which handles fresh databases) and before any
     # query touches users.email on a volume that predates the column.

@@ -171,6 +171,19 @@ Example:
 
 Tests: `pytest tests/` covers handshake domain, repos, nodes, LangGraph interrupt/resume, webhook, runner E2E, and the simulator helper.
 
+### Paused handshakes survive restarts
+
+A swap spans three inbound messages (request → `YES` → `ACCEPT`), so the graph
+sits paused between turns. Both halves of that state are persisted to
+`custody.db`: LangGraph checkpoints via `SqliteSaver`, and the phone→thread
+mapping in the `handshake_threads` table. A deploy or crash mid-conversation
+resumes where it left off rather than silently starting over.
+
+The rule is *durable when the database is a file*. Against an in-memory
+database — tests, and the simulator — it falls back to `MemorySaver`, because a
+second connection to `:memory:` is a different database and a checkpointer
+there would persist nothing. Startup logs which mode is active.
+
 ## Deploy API to Fly.io
 
 The Next.js app stays on Vercel (or local). Fly hosts **only** the FastAPI API with a persistent SQLite volume.
@@ -226,7 +239,7 @@ Notes:
 
 - **Run exactly one machine / one uvicorn process.** This is how the app is currently configured — `fly.toml` (`min_machines_running = 1`, `auto_stop_machines = 'off'`) plus the Dockerfile `CMD` (a single uvicorn process, no `--workers`). Note that `min_machines_running` is a floor, not a ceiling: nothing prevents `fly scale count 2`, so this is a rule you keep, not one Fly keeps for you. Two independent reasons:
   - **SQLite volume — data integrity, applies now.** The `sqlite_data` volume attaches to exactly one machine at a time. A second machine does not share the database; it gets its own empty volume, producing two silently diverging copies of the calendar. This holds regardless of whether SMS is live.
-  - **In-memory handshake state — applies once SMS is live.** The LangGraph checkpoint and phone→thread registry live only in process memory, so any restart or deploy drops conversations paused mid-handshake (the app logs a warning about this at startup). A durable checkpointer is the deferred fix.
+  - **Single writer to the checkpoint — applies once SMS is live.** In-flight handshakes are now durable: the LangGraph checkpoint and the phone→thread registry are both written to `custody.db`, so a restart or deploy resumes a paused conversation instead of dropping it. That state lives on the volume, though, so it inherits the same one-machine limit as everything else there.
 - **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Be deliberate with the `fly ssh console -C "rm -f /data/custody.db"` step in the re-seed runbook above — on Fly that permanently deletes real family data. It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly.
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
 - The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
