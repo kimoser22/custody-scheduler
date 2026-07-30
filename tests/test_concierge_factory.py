@@ -15,14 +15,17 @@ def test_startup_reports_handshakes_survive_restarts(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Handshakes are checkpointed to the database now, so startup should say
-    where that state lives rather than warn about losing it."""
+    where that state lives. Logged at WARNING so uvicorn surfaces it on Fly."""
     monkeypatch.setenv("DATABASE_URL", "sqlite:////data/custody.db")
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.WARNING):
         describe_handshake_durability()
 
-    messages = [record.getMessage().lower() for record in caplog.records]
-    assert any("survives restarts" in message for message in messages)
-    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+    warnings = [
+        record for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    messages = [record.getMessage().lower() for record in warnings]
+    assert any("durable" in message and "survives restarts" in message for message in messages)
+    assert not any("in-memory only" in message for message in messages)
 
 
 def test_startup_still_warns_when_the_database_is_ephemeral(

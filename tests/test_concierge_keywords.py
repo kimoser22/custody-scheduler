@@ -61,6 +61,7 @@ def test_classify_keyword_recognizes_stop_and_help() -> None:
     assert classify_keyword("END") == "stop"
     assert classify_keyword("QUIT") == "stop"
     assert classify_keyword("HELP") == "help"
+    assert classify_keyword("START") == "start"
     assert classify_keyword("help me") is None
     assert classify_keyword("swap july 8") is None
 

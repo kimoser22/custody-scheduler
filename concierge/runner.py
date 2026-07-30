@@ -8,33 +8,40 @@ from langgraph.types import Command
 
 from concierge.graph import build_concierge_graph
 from concierge.nodes import ConciergeDeps
-from concierge.ports import IdempotencyStore, SenderResolver, ThreadRegistry
+from concierge.ports import IdempotencyStore, OptOutAwareSmsGateway, SenderResolver, ThreadRegistry
+from concierge.sms_copy import (
+    HELP_REPLY,
+    OPT_IN_REPLY,
+    OPT_OUT_REPLY,
+    STILL_OPTED_OUT_REPLY,
+)
 
 _STOP_KEYWORDS = frozenset(
     {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
 )
 _HELP_KEYWORDS = frozenset({"help"})
-
-_OPT_OUT_REPLY = (
-    "You have opted out of Custody Scheduler messages. "
-    "No further scheduling texts will be sent to this number. "
-    "Reply HELP for help."
-)
-_HELP_REPLY = (
-    "Custody Scheduler: private household scheduling texts. "
-    "Message frequency varies. Msg & data rates may apply. "
-    "Reply STOP to opt out."
-)
+_START_KEYWORDS = frozenset({"start", "unstop"})
 
 
 def classify_keyword(body: str) -> str | None:
-    """Return 'stop' or 'help' when the entire body is a reserved keyword."""
+    """Return 'stop', 'help', or 'start' when the entire body is a reserved keyword."""
     token = body.strip().lower()
     if token in _STOP_KEYWORDS:
         return "stop"
     if token in _HELP_KEYWORDS:
         return "help"
+    if token in _START_KEYWORDS:
+        return "start"
     return None
+
+
+def _send_keyword_reply(deps: ConciergeDeps, to: str, body: str) -> None:
+    """Keyword ACKs must reach opted-out phones (STOP confirmation, HELP, START)."""
+    sms = deps.sms
+    if isinstance(sms, OptOutAwareSmsGateway):
+        sms.send_forced(to=to, body=body)
+    else:
+        sms.send(to=to, body=body)
 
 
 class ConciergeRunner(Protocol):
@@ -91,11 +98,20 @@ class LangGraphConciergeRunner:
         keyword = classify_keyword(body)
         if keyword == "stop":
             self.registry.clear(from_phone)
-            self.deps.sms.send(to=from_phone, body=_OPT_OUT_REPLY)
+            self.deps.opt_outs.opt_out(from_phone)
+            _send_keyword_reply(self.deps, from_phone, OPT_OUT_REPLY)
             return {"status": "ok", "reason": "opt_out"}
+        if keyword == "start":
+            self.deps.opt_outs.opt_in(from_phone)
+            _send_keyword_reply(self.deps, from_phone, OPT_IN_REPLY)
+            return {"status": "ok", "reason": "opt_in"}
         if keyword == "help":
-            self.deps.sms.send(to=from_phone, body=_HELP_REPLY)
+            _send_keyword_reply(self.deps, from_phone, HELP_REPLY)
             return {"status": "ok", "reason": "help"}
+
+        if self.deps.opt_outs.is_opted_out(from_phone):
+            _send_keyword_reply(self.deps, from_phone, STILL_OPTED_OUT_REPLY)
+            return {"status": "ok", "reason": "opted_out"}
 
         open_thread = self.registry.get(from_phone)
         if open_thread:

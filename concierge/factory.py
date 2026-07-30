@@ -13,10 +13,11 @@ from sqlmodel import Session, select
 
 from concierge.adapters import EnvTwilioSmsGateway, HeuristicIntentParser, SqlSenderResolver
 from concierge.nodes import ConciergeDeps
-from concierge.ports import IntentParser
+from concierge.ports import IntentParser, OptOutAwareSmsGateway
 from concierge.repos import (
     SqlAuditRepository,
     SqlIdempotencyStore,
+    SqlOptOutStore,
     SqlOverrideRepository,
     SqlThreadRegistry,
 )
@@ -96,8 +97,10 @@ def describe_handshake_durability(logger: logging.Logger | None = None) -> None:
             "conversations paused mid-handshake."
         )
         return
-    log.info(
-        "SMS handshake state is checkpointed to %s and survives restarts.",
+    # WARNING (not INFO): uvicorn's default config hides application INFO logs,
+    # so operators never saw the durable confirmation on Fly.
+    log.warning(
+        "SMS handshake state is durable: checkpointed to %s and survives restarts.",
         database,
     )
 
@@ -139,8 +142,9 @@ def build_default_runner(session: Session | None = None) -> LangGraphConciergeRu
         )
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    opt_outs = SqlOptOutStore(session)
     deps = ConciergeDeps(
-        sms=EnvTwilioSmsGateway(),
+        sms=OptOutAwareSmsGateway(EnvTwilioSmsGateway(), opt_outs),
         parser=_build_parser(today=now.date()),
         resolver=SqlSenderResolver(session),
         overrides=SqlOverrideRepository(session),
@@ -149,6 +153,7 @@ def build_default_runner(session: Session | None = None) -> LangGraphConciergeRu
         now=now,
         counterparty_by_family={},
         parents_by_family=parents_by_family,
+        opt_outs=opt_outs,
     )
     return LangGraphConciergeRunner(
         deps=deps,

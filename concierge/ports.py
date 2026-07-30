@@ -32,6 +32,44 @@ class SmsGateway(Protocol):
     def send(self, to: str, body: str) -> None: ...
 
 
+class OptOutStore(Protocol):
+    def is_opted_out(self, phone: str) -> bool: ...
+
+    def opt_out(self, phone: str) -> None: ...
+
+    def opt_in(self, phone: str) -> None: ...
+
+
+@dataclass
+class InMemoryOptOutStore:
+    opted_out: set[str] = field(default_factory=set)
+
+    def is_opted_out(self, phone: str) -> bool:
+        return phone in self.opted_out
+
+    def opt_out(self, phone: str) -> None:
+        self.opted_out.add(phone)
+
+    def opt_in(self, phone: str) -> None:
+        self.opted_out.discard(phone)
+
+
+@dataclass
+class OptOutAwareSmsGateway:
+    """Drops outbound SMS to opted-out numbers unless send_forced is used."""
+
+    inner: SmsGateway
+    opt_outs: OptOutStore
+
+    def send(self, to: str, body: str) -> None:
+        if self.opt_outs.is_opted_out(to):
+            return
+        self.inner.send(to=to, body=body)
+
+    def send_forced(self, to: str, body: str) -> None:
+        self.inner.send(to=to, body=body)
+
+
 class IntentParser(Protocol):
     def parse(self, text: str) -> ParsedIntent | None: ...
 

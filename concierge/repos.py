@@ -9,6 +9,7 @@ from database.schema import (
     AuditLogTable,
     HandshakeThreadTable,
     OverrideTable,
+    SmsOptOutTable,
     TwilioIdempotencyTable,
 )
 
@@ -202,3 +203,29 @@ class SqlIdempotencyStore:
             self._session.rollback()
             return False
         return True
+
+
+class SqlOptOutStore:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def is_opted_out(self, phone: str) -> bool:
+        return self._session.get(SmsOptOutTable, phone) is not None
+
+    def opt_out(self, phone: str) -> None:
+        if self.is_opted_out(phone):
+            return
+        self._session.add(
+            SmsOptOutTable(
+                phone=phone,
+                opted_out_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        )
+        self._session.commit()
+
+    def opt_in(self, phone: str) -> None:
+        row = self._session.get(SmsOptOutTable, phone)
+        if row is None:
+            return
+        self._session.delete(row)
+        self._session.commit()

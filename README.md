@@ -321,4 +321,4 @@ After Vercel is live, enter these in the Twilio campaign registry:
 - Privacy: `https://YOUR_APP.vercel.app/privacy`
 - Terms: `https://YOUR_APP.vercel.app/terms`
 
-Copy lives in `frontend/src/lib/legal-copy.ts`. SMS `STOP` / `HELP` are handled in `concierge/runner.py` before any swap handshake.
+Copy lives in `frontend/src/lib/legal-copy.ts`. SMS `STOP` / `HELP` / `START` are handled in `concierge/runner.py` before any swap handshake. `STOP` persists to `sms_opt_outs` and blocks further outbound scheduling texts until `START`.

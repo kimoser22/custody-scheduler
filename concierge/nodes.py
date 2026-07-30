@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, TypedDict
 
@@ -10,7 +10,9 @@ from core.models import OverrideStatus
 from concierge.ports import (
     AuditRepository,
     IdempotencyStore,
+    InMemoryOptOutStore,
     IntentParser,
+    OptOutStore,
     OverrideConflictError,
     OverrideRepository,
     SenderResolver,
@@ -57,6 +59,7 @@ class ConciergeDeps:
     now: datetime
     counterparty_by_family: dict[int, tuple[int, str, str]]
     parents_by_family: dict[int, list[tuple[int, str, str]]] | None = None
+    opt_outs: OptOutStore = field(default_factory=InMemoryOptOutStore)
 
 
 def ingest_and_dedupe(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:

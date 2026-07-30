@@ -92,3 +92,12 @@ class HandshakeThreadTable(SQLModel, table=True):
     phone: str = Field(primary_key=True)
     thread_id: str
     updated_at: datetime
+
+
+class SmsOptOutTable(SQLModel, table=True):
+    """Phones that replied STOP — suppress all outbound scheduling SMS."""
+
+    __tablename__ = "sms_opt_outs"
+
+    phone: str = Field(primary_key=True)
+    opted_out_at: datetime
