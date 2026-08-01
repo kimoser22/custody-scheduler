@@ -1,5 +1,6 @@
 """Persisted SMS opt-out: STOP stores suppression; outbound sends respect it."""
 
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
 from sqlmodel import select
@@ -144,3 +145,82 @@ def test_opt_out_aware_gateway_skips_send_when_opted_out() -> None:
         ("+15550001", "forced ok"),
         ("+15550002", "other ok"),
     ]
+
+
+def test_keyword_reply_uses_send_forced_not_isinstance(
+    session_fixture,
+) -> None:
+    """STOP ACK must not depend on OptOutAwareSmsGateway isinstance checks."""
+
+    @dataclass
+    class CustomGatingSms:
+        sent: list[tuple[str, str]] = field(default_factory=list)
+        blocked: set[str] = field(default_factory=set)
+
+        def send(self, to: str, body: str) -> None:
+            if to in self.blocked:
+                return
+            self.sent.append((to, body))
+
+        def send_forced(self, to: str, body: str) -> None:
+            self.sent.append((to, body))
+
+    sms = CustomGatingSms(blocked={"+15550001"})
+    runner, _inner, _opt = _build_runner(session_fixture)
+    runner.deps.sms = sms  # type: ignore[assignment]
+
+    result = runner.handle_sms(
+        message_sid="SM-custom-stop",
+        from_phone="+15550001",
+        body="STOP",
+    )
+    assert result["reason"] == "opt_out"
+    assert any("opted out" in body.lower() for _, body in sms.sent)
+
+
+def test_double_stop_does_not_raise(session_fixture) -> None:
+    """Concurrent STOP can race past the existence check; PK conflict must not 500."""
+    opt_outs = SqlOptOutStore(session_fixture)
+    session_fixture.add(
+        SmsOptOutTable(
+            phone="+15550001",
+            opted_out_at=NOW,
+        )
+    )
+    session_fixture.commit()
+    # Simulate the losing racer: check already returned False before the winner committed.
+    opt_outs.is_opted_out = lambda phone: False  # type: ignore[method-assign]
+    opt_outs.opt_out("+15550001")
+    assert SqlOptOutStore(session_fixture).is_opted_out("+15550001")
+
+
+def test_help_after_stop_still_acks(session_fixture) -> None:
+    runner, inner, opt_outs = _build_runner(session_fixture)
+
+    runner.handle_sms(
+        message_sid="SM-stop-then-help-1", from_phone="+15550001", body="STOP"
+    )
+    inner.sent.clear()
+    assert opt_outs.is_opted_out("+15550001")
+
+    result = runner.handle_sms(
+        message_sid="SM-stop-then-help-2", from_phone="+15550001", body="HELP"
+    )
+    assert result["reason"] == "help"
+    assert any("help" in body.lower() or "STOP" in body for _, body in inner.sent)
+
+
+def test_stop_with_unformatted_phone_still_opts_out(session_fixture) -> None:
+    """Opt-out keys normalize so bare/US-formatted From matches seeded E.164."""
+    opt_outs = SqlOptOutStore(session_fixture)
+    runner, inner, _ = _build_runner(session_fixture, opt_outs=opt_outs)
+
+    result = runner.handle_sms(
+        message_sid="SM-stop-fmt",
+        from_phone="1-555-0001",
+        body="STOP",
+    )
+    assert result["reason"] == "opt_out"
+    assert opt_outs.is_opted_out("+15550001")
+    assert opt_outs.is_opted_out("15550001")
+    assert any("opted out" in body.lower() for _, body in inner.sent)

@@ -98,7 +98,8 @@ def describe_handshake_durability(logger: logging.Logger | None = None) -> None:
         )
         return
     # WARNING (not INFO): uvicorn's default config hides application INFO logs,
-    # so operators never saw the durable confirmation on Fly.
+    # so operators never saw the durable confirmation on Fly. Acceptable noise
+    # vs silent boots; silence logger "concierge.factory" if alerting on WARNING.
     log.warning(
         "SMS handshake state is durable: checkpointed to %s and survives restarts.",
         database,

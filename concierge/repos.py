@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from concierge.phones import normalize_phone
 from concierge.ports import OverrideConflictError
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
 from database.schema import (
@@ -210,9 +211,10 @@ class SqlOptOutStore:
         self._session = session
 
     def is_opted_out(self, phone: str) -> bool:
-        return self._session.get(SmsOptOutTable, phone) is not None
+        return self._session.get(SmsOptOutTable, normalize_phone(phone)) is not None
 
     def opt_out(self, phone: str) -> None:
+        phone = normalize_phone(phone)
         if self.is_opted_out(phone):
             return
         self._session.add(
@@ -221,9 +223,14 @@ class SqlOptOutStore:
                 opted_out_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
         )
-        self._session.commit()
+        try:
+            self._session.commit()
+        except IntegrityError:
+            # Concurrent STOP raced past the existence check; already opted out.
+            self._session.rollback()
 
     def opt_in(self, phone: str) -> None:
+        phone = normalize_phone(phone)
         row = self._session.get(SmsOptOutTable, phone)
         if row is None:
             return

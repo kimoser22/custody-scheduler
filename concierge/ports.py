@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Protocol
 
+from concierge.phones import normalize_phone
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
 
 
@@ -31,6 +32,10 @@ class ResolvedSender:
 class SmsGateway(Protocol):
     def send(self, to: str, body: str) -> None: ...
 
+    def send_forced(self, to: str, body: str) -> None:
+        """Bypass opt-out gating (keyword ACKs). Ungated gateways alias send."""
+        ...
+
 
 class OptOutStore(Protocol):
     def is_opted_out(self, phone: str) -> bool: ...
@@ -45,13 +50,13 @@ class InMemoryOptOutStore:
     opted_out: set[str] = field(default_factory=set)
 
     def is_opted_out(self, phone: str) -> bool:
-        return phone in self.opted_out
+        return normalize_phone(phone) in self.opted_out
 
     def opt_out(self, phone: str) -> None:
-        self.opted_out.add(phone)
+        self.opted_out.add(normalize_phone(phone))
 
     def opt_in(self, phone: str) -> None:
-        self.opted_out.discard(phone)
+        self.opted_out.discard(normalize_phone(phone))
 
 
 @dataclass
@@ -62,7 +67,7 @@ class OptOutAwareSmsGateway:
     opt_outs: OptOutStore
 
     def send(self, to: str, body: str) -> None:
-        if self.opt_outs.is_opted_out(to):
+        if self.opt_outs.is_opted_out(normalize_phone(to)):
             return
         self.inner.send(to=to, body=body)
 
@@ -145,6 +150,9 @@ class FakeSmsGateway:
 
     def send(self, to: str, body: str) -> None:
         self.sent.append((to, body))
+
+    def send_forced(self, to: str, body: str) -> None:
+        self.send(to=to, body=body)
 
 
 @dataclass

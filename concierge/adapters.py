@@ -5,6 +5,7 @@ from datetime import date
 
 from sqlmodel import Session, select
 
+from concierge.phones import normalize_phone
 from concierge.ports import ParsedIntent, ResolvedSender
 from core.models import OverrideType, ParentRole
 from database.schema import UserTable
@@ -15,6 +16,7 @@ class SqlSenderResolver:
         self._session = session
 
     def resolve(self, phone: str) -> ResolvedSender | None:
+        phone = normalize_phone(phone)
         row = self._session.exec(
             select(UserTable).where(UserTable.phone == phone)
         ).first()
@@ -50,6 +52,9 @@ class EnvTwilioSmsGateway:
             from_=self.from_number,
             body=body,
         )
+
+    def send_forced(self, to: str, body: str) -> None:
+        self.send(to=to, body=body)
 
 
 class HeuristicIntentParser:

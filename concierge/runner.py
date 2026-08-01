@@ -8,7 +8,8 @@ from langgraph.types import Command
 
 from concierge.graph import build_concierge_graph
 from concierge.nodes import ConciergeDeps
-from concierge.ports import IdempotencyStore, OptOutAwareSmsGateway, SenderResolver, ThreadRegistry
+from concierge.phones import normalize_phone
+from concierge.ports import IdempotencyStore, SenderResolver, ThreadRegistry
 from concierge.sms_copy import (
     HELP_REPLY,
     OPT_IN_REPLY,
@@ -37,11 +38,7 @@ def classify_keyword(body: str) -> str | None:
 
 def _send_keyword_reply(deps: ConciergeDeps, to: str, body: str) -> None:
     """Keyword ACKs must reach opted-out phones (STOP confirmation, HELP, START)."""
-    sms = deps.sms
-    if isinstance(sms, OptOutAwareSmsGateway):
-        sms.send_forced(to=to, body=body)
-    else:
-        sms.send(to=to, body=body)
+    deps.sms.send_forced(to=to, body=body)
 
 
 class ConciergeRunner(Protocol):
@@ -83,6 +80,7 @@ class LangGraphConciergeRunner:
     def handle_sms(
         self, *, message_sid: str, from_phone: str, body: str
     ) -> dict[str, Any]:
+        from_phone = normalize_phone(from_phone)
         # Claim delivery of this exact message_sid once, before touching the
         # registry or the graph — for both a brand-new conversation and a
         # reply. A thread_id (below) is unique per conversation and never
