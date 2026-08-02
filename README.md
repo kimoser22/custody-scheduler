@@ -254,6 +254,12 @@ rows when they are first created. Seeding **reconciles per-user on boot**
 **back-fills a NULL passcode** from its secret when that secret is now set — but
 it **never overwrites a passcode that is already set**.
 
+**Phone and email** follow the same rule for email (`SEED_PARENT_*_EMAIL` only
+fills a NULL address) and phones are **insert-only** at seed time. After launch,
+parents change phone/email in the schedule page **Contact settings** panel
+(`GET`/`PATCH /api/v1/me`) — not by rotating seed secrets. A non-NULL contact
+value in the DB is never overwritten on boot.
+
 Consequences:
 
 - **Enabling login for the first time** (or after adding a secret that wasn't set

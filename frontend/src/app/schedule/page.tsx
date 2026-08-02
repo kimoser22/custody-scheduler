@@ -3,11 +3,16 @@
 import { useState } from "react";
 
 import { CalendarGrid } from "@/components/CalendarGrid";
+import { ContactSettings } from "@/components/ContactSettings";
 import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
+import {
+  fetchMeRequest,
+  updateMeRequest,
+} from "@/lib/api/me";
 import {
   createOverrideRequest,
   decideOverrideRequest,
@@ -81,6 +86,16 @@ export default function SchedulePage() {
       </div>
 
       <DevAuthBar onAuthChange={handleAuthChange} />
+
+      {canRequestOverride(session) ? (
+        <div className="mt-4 mb-4">
+          <ContactSettings
+            key={authToken ?? "signed-out"}
+            fetchMe={fetchMeRequest}
+            updateMe={updateMeRequest}
+          />
+        </div>
+      ) : null}
 
       <div className="mb-4 flex gap-4 text-sm">
         <span className="rounded border border-blue-200 bg-blue-50 px-2 py-1">

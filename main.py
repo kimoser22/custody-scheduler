@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlmodel import Session, SQLModel, select  # noqa: E402
 
 from api.auth_router import auth_router  # noqa: E402
+from api.me_router import me_router  # noqa: E402
 from api.passcodes import hash_passcode  # noqa: E402
 from concierge.factory import describe_handshake_durability  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
@@ -192,6 +193,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(me_router)
 app.include_router(router)
 app.include_router(schedule_router)
 app.include_router(twilio_router)
