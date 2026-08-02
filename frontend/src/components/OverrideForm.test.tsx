@@ -54,4 +54,34 @@ describe("OverrideForm", () => {
       expect(onSuccess).toHaveBeenCalled();
     });
   });
+
+  it("posts end_date with the selected range", async () => {
+    const user = userEvent.setup();
+    const createOverride = vi.fn<CreateOverride>(async (override) => ({
+      ok: true,
+      data: override,
+    }));
+
+    render(
+      <OverrideForm
+        initialDate="2026-01-15"
+        createOverride={createOverride}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText("End date"));
+    await user.type(screen.getByLabelText("End date"), "2026-01-17");
+    await user.type(screen.getByLabelText("Description"), "Long weekend");
+    await user.click(screen.getByRole("button", { name: "Request override" }));
+
+    await waitFor(() => {
+      expect(createOverride).toHaveBeenCalledWith(
+        expect.objectContaining({
+          override_date: "2026-01-15",
+          end_date: "2026-01-17",
+          description: "Long weekend",
+        }),
+      );
+    });
+  });
 });

@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 from concierge.phones import normalize_phone
 from concierge.ports import OverrideConflictError
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
+from core.ranges import ranges_overlap
 from database.schema import (
     AuditLogTable,
     HandshakeThreadTable,
@@ -19,6 +20,7 @@ def _to_domain(row: OverrideTable) -> ScheduleOverride:
     return ScheduleOverride(
         id=row.id,
         override_date=row.override_date,
+        end_date=row.end_date,
         assigned_parent=ParentRole(row.assigned_parent),
         override_type=OverrideType(row.override_type),
         description=row.description,
@@ -43,10 +45,12 @@ class SqlOverrideRepository:
         description: str,
         requested_by_user_id: int,
         expires_at: datetime,
+        end_date=None,
     ) -> ScheduleOverride:
         row = OverrideTable(
             family_id=family_id,
             override_date=override_date,
+            end_date=end_date,
             assigned_parent=assigned_parent.value,
             override_type=override_type.value,
             description=description,
@@ -99,17 +103,20 @@ class SqlOverrideRepository:
         if row is None:
             raise KeyError(override_id)
 
+        new_start = row.override_date
+        new_end = row.end_date if row.end_date is not None else row.override_date
         existing_active = self._session.exec(
             select(OverrideTable).where(
                 OverrideTable.family_id == row.family_id,
-                OverrideTable.override_date == row.override_date,
                 OverrideTable.is_active.is_(True),
                 OverrideTable.id != row.id,
             )
         ).all()
         for other in existing_active:
-            other.is_active = False
-            self._session.add(other)
+            other_end = other.end_date if other.end_date is not None else other.override_date
+            if ranges_overlap(new_start, new_end, other.override_date, other_end):
+                other.is_active = False
+                self._session.add(other)
 
         row.status = OverrideStatus.APPROVED.value
         row.is_active = True

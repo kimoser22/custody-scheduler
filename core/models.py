@@ -42,6 +42,8 @@ class ScheduleOverride(BaseModel):
     status: OverrideStatus = OverrideStatus.APPROVED
     expires_at: datetime | None = None
     requested_by_user_id: int | None = None
+    # Inclusive end of the range; None means single-day (same as override_date).
+    end_date: date | None = None
 
 
 class DailyCustodyState(BaseModel):

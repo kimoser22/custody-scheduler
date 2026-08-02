@@ -61,6 +61,19 @@ def ensure_user_email_column(engine_to_patch) -> None:
         connection.commit()
 
 
+def ensure_override_end_date_column(engine_to_patch) -> None:
+    """Add overrides.end_date in place on databases created before ranges existed."""
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(overrides)")
+        }
+        if not columns or "end_date" in columns:
+            return
+        connection.exec_driver_sql("ALTER TABLE overrides ADD COLUMN end_date DATE")
+        connection.commit()
+
+
 class SeedUser(NamedTuple):
     """One row of the declarative seed roster."""
 
@@ -144,6 +157,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Must run after create_all (which handles fresh databases) and before any
     # query touches users.email on a volume that predates the column.
     ensure_user_email_column(engine)
+    ensure_override_end_date_column(engine)
     with Session(engine) as session:
         try:
             ensure_default_seed_data(session)

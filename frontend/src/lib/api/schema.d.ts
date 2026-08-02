@@ -200,6 +200,11 @@ export interface components {
              * Format: date
              */
             override_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date?: string | null;
             assigned_parent: components["schemas"]["ParentRole"];
             override_type: components["schemas"]["OverrideType"];
             /** Description */

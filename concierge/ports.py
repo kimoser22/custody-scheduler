@@ -121,6 +121,7 @@ class OverrideRepository(Protocol):
         description: str,
         requested_by_user_id: int,
         expires_at: datetime,
+        end_date: date | None = None,
     ) -> ScheduleOverride: ...
 
     def get(self, override_id: int) -> ScheduleOverride | None: ...

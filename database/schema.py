@@ -49,6 +49,8 @@ class OverrideTable(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     family_id: int = Field(foreign_key="family_links.id")
     override_date: date
+    # Inclusive end; NULL means single-day (same as override_date).
+    end_date: date | None = None
     assigned_parent: str
     override_type: str
     description: str

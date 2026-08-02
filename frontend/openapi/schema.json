@@ -527,6 +527,18 @@
             "format": "date",
             "title": "Override Date"
           },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
           "assigned_parent": {
             "$ref": "#/components/schemas/ParentRole"
           },

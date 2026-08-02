@@ -5,6 +5,8 @@ export type OverrideStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Ex
 export interface ScheduleOverride {
   id?: number | null;
   override_date: string;
+  /** Inclusive end; omit or null means single-day (same as override_date). */
+  end_date?: string | null;
   assigned_parent: ParentRole;
   override_type: OverrideType;
   description: string;

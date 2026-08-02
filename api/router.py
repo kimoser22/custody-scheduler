@@ -30,6 +30,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
+from core.ranges import ranges_overlap
 from database.schema import BaselineTable, OverrideTable, UserTable
 
 _logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ def _to_domain(row: OverrideTable) -> ScheduleOverride:
     return ScheduleOverride(
         id=row.id,
         override_date=row.override_date,
+        end_date=row.end_date,
         assigned_parent=ParentRole(row.assigned_parent),
         override_type=OverrideType(row.override_type),
         description=row.description,
@@ -181,10 +183,17 @@ def create_override(
     audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
+    if override.end_date is not None and override.end_date < override.override_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_date must be on or after override_date.",
+        )
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     row = OverrideTable(
         family_id=current_user.family_id,
         override_date=override.override_date,
+        end_date=override.end_date,
         assigned_parent=override.assigned_parent.value,
         override_type=override.override_type.value,
         description=override.description,
@@ -277,17 +286,22 @@ def decide_override_request(
     row.decided_at = now
 
     if result.new_status == OverrideStatus.APPROVED:
+        new_start = row.override_date
+        new_end = row.end_date if row.end_date is not None else row.override_date
         existing_active = session.exec(
             select(OverrideTable).where(
                 OverrideTable.family_id == current_user.family_id,
-                OverrideTable.override_date == row.override_date,
                 OverrideTable.is_active.is_(True),
                 OverrideTable.id != row.id,
             )
         ).all()
         for other in existing_active:
-            other.is_active = False
-            session.add(other)
+            other_end = (
+                other.end_date if other.end_date is not None else other.override_date
+            )
+            if ranges_overlap(new_start, new_end, other.override_date, other_end):
+                other.is_active = False
+                session.add(other)
         row.is_active = True
 
     session.add(row)
