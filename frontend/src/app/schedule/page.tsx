@@ -3,12 +3,14 @@
 import { useState } from "react";
 
 import { CalendarGrid } from "@/components/CalendarGrid";
+import { CalendarSubscribe } from "@/components/CalendarSubscribe";
 import { ContactSettings } from "@/components/ContactSettings";
 import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
+import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
 import {
   fetchMeRequest,
   updateMeRequest,
@@ -86,6 +88,15 @@ export default function SchedulePage() {
       </div>
 
       <DevAuthBar onAuthChange={handleAuthChange} />
+
+      {authToken ? (
+        <div className="mt-4 mb-4">
+          <CalendarSubscribe
+            key={authToken}
+            ensureCalendarFeed={ensureCalendarFeedRequest}
+          />
+        </div>
+      ) : null}
 
       {canRequestOverride(session) ? (
         <div className="mt-4 mb-4">

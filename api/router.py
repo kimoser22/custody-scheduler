@@ -2,7 +2,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -21,6 +21,7 @@ from core.notifications import (
 )
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
+from core.ics import build_custody_ics
 from core.models import (
     BaselineSchedule,
     DailyCustodyState,
@@ -40,6 +41,8 @@ schedule_router = APIRouter(prefix="/api/v1/schedule")
 
 DEFAULT_FAMILY_ID = 1
 OVERRIDE_REQUEST_TTL = timedelta(hours=24)
+FEED_PAST_DAYS = 30
+FEED_FUTURE_DAYS = 180
 
 DEFAULT_BASELINE = BaselineSchedule(
     epoch_start_date=date(2026, 1, 5),
@@ -151,6 +154,46 @@ def get_schedule(
         overrides=overrides,
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@schedule_router.get("/feed.ics")
+def get_calendar_feed(
+    token: str,
+    session: SessionDep,
+) -> Response:
+    """Subscribeable ICS feed authenticated by opaque calendar_feed_token."""
+    if not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing calendar feed token.",
+        )
+    user = session.exec(
+        select(UserTable).where(UserTable.calendar_feed_token == token)
+    ).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid calendar feed token.",
+        )
+
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=FEED_PAST_DAYS)
+    end_date = today + timedelta(days=FEED_FUTURE_DAYS)
+    days = calculate_schedule(
+        baseline=_load_baseline(session, user.family_id),
+        overrides=_load_overrides(session, user.family_id),
+        start_date=start_date,
+        end_date=end_date,
+    )
+    body = build_custody_ics(days=days, family_id=user.family_id)
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'inline; filename="custody.ics"',
+            "Cache-Control": "private, max-age=300",
+        },
     )
 
 

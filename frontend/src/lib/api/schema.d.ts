@@ -39,6 +39,23 @@ export interface paths {
         patch: operations["patch_me_api_v1_me_patch"];
         trace?: never;
     };
+    "/api/v1/me/calendar-feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint Or Rotate Calendar Feed */
+        post: operations["mint_or_rotate_calendar_feed_api_v1_me_calendar_feed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -229,6 +246,21 @@ export interface components {
             /** Email */
             email?: string | null;
         };
+        /** CalendarFeedRequest */
+        CalendarFeedRequest: {
+            /**
+             * Rotate
+             * @default false
+             */
+            rotate?: boolean;
+        };
+        /** CalendarFeedResponse */
+        CalendarFeedResponse: {
+            /** Token */
+            token: string;
+            /** Url */
+            url: string;
+        };
         /** ScheduleOverride */
         ScheduleOverride: {
             /** Id */
@@ -388,6 +420,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mint_or_rotate_calendar_feed_api_v1_me_calendar_feed_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CalendarFeedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedResponse"];
                 };
             };
             /** @description Validation Error */

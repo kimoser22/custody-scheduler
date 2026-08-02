@@ -23,6 +23,10 @@ class UserTable(SQLModel, table=True):
     # Nullable so existing rows stay valid; ensure_user_email_column() adds the
     # column in place on databases created before it existed.
     email: str | None = None
+    # Opaque subscribe token for GET /schedule/feed.ics?token=… Unique when set.
+    calendar_feed_token: str | None = Field(
+        default=None, unique=True, index=True
+    )
 
 
 class BaselineTable(SQLModel, table=True):

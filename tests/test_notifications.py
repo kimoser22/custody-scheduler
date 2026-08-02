@@ -18,7 +18,7 @@ from core.notifications import (
     override_requested_email,
 )
 from database.schema import UserTable
-from main import ensure_user_email_column
+from main import ensure_calendar_feed_token_column, ensure_user_email_column
 
 SMTP_ENV = {
     "SMTP_HOST": "smtp.gmail.com",
@@ -221,6 +221,9 @@ def test_migration_adds_missing_email_column() -> None:
     ensure_user_email_column(engine)
 
     assert "email" in _columns(engine)
+    # Bring the legacy table in line with the current ORM model before reading
+    # (production lifespan runs all ensure_* migrations in sequence).
+    ensure_calendar_feed_token_column(engine)
     # Existing rows survive and read back through the ORM.
     with Session(engine) as session:
         user = session.exec(select(UserTable).where(UserTable.id == 101)).one()

@@ -143,6 +143,61 @@
         }
       }
     },
+    "/api/v1/me/calendar-feed": {
+      "post": {
+        "summary": "Mint Or Rotate Calendar Feed",
+        "operationId": "mint_or_rotate_calendar_feed_api_v1_me_calendar_feed_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarFeedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarFeedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health Check",
@@ -690,6 +745,35 @@
           "description"
         ],
         "title": "ScheduleOverride"
+      },
+      "CalendarFeedRequest": {
+        "properties": {
+          "rotate": {
+            "type": "boolean",
+            "title": "Rotate",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CalendarFeedRequest"
+      },
+      "CalendarFeedResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "url"
+        ],
+        "title": "CalendarFeedResponse"
       },
       "MeResponse": {
         "properties": {

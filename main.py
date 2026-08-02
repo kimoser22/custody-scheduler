@@ -75,6 +75,26 @@ def ensure_override_end_date_column(engine_to_patch) -> None:
         connection.commit()
 
 
+def ensure_calendar_feed_token_column(engine_to_patch) -> None:
+    """Add users.calendar_feed_token on databases created before ICS feeds."""
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(users)")
+        }
+        if not columns or "calendar_feed_token" in columns:
+            return
+        connection.exec_driver_sql(
+            "ALTER TABLE users ADD COLUMN calendar_feed_token VARCHAR"
+        )
+        connection.commit()
+        # Unique index for token lookup; SQLite allows multiple NULLs.
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_calendar_feed_token "
+            "ON users (calendar_feed_token)"
+        )
+        connection.commit()
+
+
 class SeedUser(NamedTuple):
     """One row of the declarative seed roster."""
 
@@ -159,6 +179,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # query touches users.email on a volume that predates the column.
     ensure_user_email_column(engine)
     ensure_override_end_date_column(engine)
+    ensure_calendar_feed_token_column(engine)
     with Session(engine) as session:
         try:
             ensure_default_seed_data(session)

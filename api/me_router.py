@@ -1,8 +1,9 @@
 """Self-service profile: contact phone and email for the signed-in user."""
 
+import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlmodel import select
 
@@ -24,6 +25,15 @@ class MeResponse(BaseModel):
 class MeUpdate(BaseModel):
     phone: str | None = None
     email: str | None = None
+
+
+class CalendarFeedRequest(BaseModel):
+    rotate: bool = False
+
+
+class CalendarFeedResponse(BaseModel):
+    token: str
+    url: str
 
 
 def _to_response(user: UserTable) -> MeResponse:
@@ -83,6 +93,14 @@ def _normalize_email_or_400(raw: str | None) -> str | None:
     return stripped.lower()
 
 
+def _feed_url(request: Request, token: str) -> str:
+    return str(request.base_url).rstrip("/") + f"/api/v1/schedule/feed.ics?token={token}"
+
+
+def _new_feed_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
 @me_router.get("/me")
 def get_me(
     session: SessionDep,
@@ -126,3 +144,27 @@ def patch_me(
     session.commit()
     session.refresh(user)
     return _to_response(user)
+
+
+@me_router.post("/me/calendar-feed")
+def mint_or_rotate_calendar_feed(
+    request: Request,
+    session: SessionDep,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    body: CalendarFeedRequest | None = None,
+) -> CalendarFeedResponse:
+    """Mint a subscribe token, or rotate it when body.rotate is true."""
+    payload = body or CalendarFeedRequest()
+    user = _load_user(session, current_user.id)
+
+    if payload.rotate or not user.calendar_feed_token:
+        user.calendar_feed_token = _new_feed_token()
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+    assert user.calendar_feed_token is not None
+    return CalendarFeedResponse(
+        token=user.calendar_feed_token,
+        url=_feed_url(request, user.calendar_feed_token),
+    )
