@@ -24,10 +24,17 @@ from database.schema import OverrideTable
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc).replace(tzinfo=None)
 
 
-def _build_runner(session_fixture):
+def _build_runner(
+    session_fixture,
+    *,
+    counterparty_by_family: dict | None = None,
+    parents_by_family: dict | None = None,
+):
     inner = FakeSmsGateway()
     opt_outs = InMemoryOptOutStore()
     gated = OptOutAwareSmsGateway(inner, opt_outs)
+    if counterparty_by_family is None and parents_by_family is None:
+        counterparty_by_family = {1: (102, "+15550002", "Parent B")}
     deps = ConciergeDeps(
         sms=gated,
         parser=FakeIntentParser(
@@ -59,7 +66,8 @@ def _build_runner(session_fixture):
         audit=SqlAuditRepository(session_fixture),
         idempotency=InMemoryIdempotencyStore(),
         now=NOW,
-        counterparty_by_family={1: (102, "+15550002", "Parent B")},
+        counterparty_by_family=counterparty_by_family or {},
+        parents_by_family=parents_by_family,
         opt_outs=opt_outs,
     )
     return LangGraphConciergeRunner(deps=deps), inner, opt_outs
@@ -122,6 +130,48 @@ def test_initiator_stop_after_yes_rejects_pending_and_blocks_accept(
     assert accept["status"] != "ok" or (
         isinstance(accept.get("result"), dict)
         and accept["result"].get("override_id") != pending[0].id
+    )
+
+
+def test_stop_withdrawn_sms_uses_parents_by_family(session_fixture) -> None:
+    """Prod factory fills parents_by_family and leaves counterparty_by_family empty."""
+    runner, inner, _ = _build_runner(
+        session_fixture,
+        counterparty_by_family={},
+        parents_by_family={
+            1: [
+                (101, "+15550001", "Parent A"),
+                (102, "+15550002", "Parent B"),
+            ]
+        },
+    )
+
+    assert (
+        runner.handle_sms(
+            message_sid="SM-stop-parents-1",
+            from_phone="+15550001",
+            body="swap please",
+        )["status"]
+        == "waiting"
+    )
+    assert (
+        runner.handle_sms(
+            message_sid="SM-stop-parents-2",
+            from_phone="+15550001",
+            body="YES",
+        )["status"]
+        == "waiting"
+    )
+
+    runner.handle_sms(
+        message_sid="SM-stop-parents-3",
+        from_phone="+15550001",
+        body="STOP",
+    )
+
+    assert any(
+        phone == "+15550002" and "withdrew" in body.lower()
+        for phone, body in inner.sent
     )
 
 
