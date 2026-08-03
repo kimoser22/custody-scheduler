@@ -10,11 +10,82 @@ from core.models import (
     ScheduleOverride,
 )
 from core.engine import calculate_schedule
-from core.ics import PRODID, build_custody_ics, escape_ics_text
+from core.ics import PRODID, build_custody_ics, escape_ics_text, fold_ics_line
+
+MAX_OCTETS = 75
+
+
+def _day_with_description(description: str) -> DailyCustodyState:
+    override = ScheduleOverride(
+        id=1,
+        override_date=date(2026, 1, 6),
+        assigned_parent=ParentRole.PARENT_B,
+        override_type=OverrideType.HOLIDAY,
+        description=description,
+        is_active=True,
+    )
+    return DailyCustodyState(
+        current_date=date(2026, 1, 6),
+        baseline_parent=ParentRole.PARENT_A,
+        final_parent=ParentRole.PARENT_B,
+        is_overridden=True,
+        override_details=override,
+    )
+
+
+def _unfold(ics: str) -> str:
+    """Reverse RFC 5545 folding the way a calendar client does."""
+    return ics.replace("\r\n ", "")
 
 
 def test_escape_ics_text() -> None:
     assert escape_ics_text("a,b;c\\d\ne") == "a\\,b\\;c\\\\d\\ne"
+
+
+# --- RFC 5545 line folding ----------------------------------------------------
+
+
+def test_short_lines_are_left_alone() -> None:
+    assert fold_ics_line("SUMMARY:Custody: Parent A") == "SUMMARY:Custody: Parent A"
+
+
+def test_long_line_is_folded_to_the_octet_limit() -> None:
+    folded = fold_ics_line("DESCRIPTION:" + "x" * 200)
+    for line in folded.split("\r\n"):
+        assert len(line.encode("utf-8")) <= MAX_OCTETS
+    assert "\r\n " in folded
+
+
+def test_folding_round_trips() -> None:
+    original = "DESCRIPTION:" + "x" * 200
+    assert _unfold(fold_ics_line(original)) == original
+
+
+def test_folding_never_splits_a_multibyte_character() -> None:
+    """Folding counts octets but must break on character boundaries — a split
+    UTF-8 sequence would corrupt the feed for any client that decodes it."""
+    original = "DESCRIPTION:" + "é" * 100
+    folded = fold_ics_line(original)
+    for line in folded.split("\r\n"):
+        assert len(line.encode("utf-8")) <= MAX_OCTETS
+    assert _unfold(folded) == original
+
+
+def test_generated_calendar_never_exceeds_the_octet_limit() -> None:
+    """A parent's free-text description is user-controlled, so the whole
+    document must stay within spec no matter what they type."""
+    ics = build_custody_ics(
+        days=[_day_with_description("Spring break with the grandparents. " * 8)],
+        family_id=1,
+    )
+    for line in ics.split("\r\n"):
+        assert len(line.encode("utf-8")) <= MAX_OCTETS
+
+
+def test_long_description_survives_unfolding() -> None:
+    description = "Spring break with the grandparents. " * 8
+    ics = build_custody_ics(days=[_day_with_description(description)], family_id=1)
+    assert f"DESCRIPTION:{escape_ics_text(description)}" in _unfold(ics)
 
 
 def test_build_custody_ics_has_required_calendar_props() -> None:

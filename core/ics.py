@@ -10,6 +10,43 @@ PRODID = "-//Moser Custody Concierge//Custody Scheduler//EN"
 CAL_NAME = "Custody Schedule"
 
 
+MAX_LINE_OCTETS = 75
+
+
+def fold_ics_line(line: str, limit: int = MAX_LINE_OCTETS) -> str:
+    """Fold a content line to RFC 5545's 75-octet limit.
+
+    Continuation lines begin with a single space, which clients strip when
+    unfolding. The limit is in *octets*, but breaks are taken on character
+    boundaries — splitting a multi-byte UTF-8 sequence would corrupt the feed
+    for any client that decodes it. A parent's free-text override description
+    is user-controlled, so long lines are routine rather than exceptional.
+    """
+    if len(line.encode("utf-8")) <= limit:
+        return line
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_octets = 0
+    # Continuation lines spend one octet on their leading space.
+    budget = limit
+
+    for character in line:
+        octets = len(character.encode("utf-8"))
+        if current_octets + octets > budget:
+            chunks.append("".join(current))
+            current = [character]
+            current_octets = octets
+            budget = limit - 1
+        else:
+            current.append(character)
+            current_octets += octets
+
+    if current:
+        chunks.append("".join(current))
+    return "\r\n ".join(chunks)
+
+
 def escape_ics_text(value: str) -> str:
     return (
         value.replace("\\", "\\\\")
@@ -50,7 +87,7 @@ def build_custody_ics(
     for day in days:
         lines.extend(_vevent_lines(day=day, family_id=family_id, stamped=stamped))
     lines.append("END:VCALENDAR")
-    return "\r\n".join(lines) + "\r\n"
+    return "\r\n".join(fold_ics_line(line) for line in lines) + "\r\n"
 
 
 def _vevent_lines(
