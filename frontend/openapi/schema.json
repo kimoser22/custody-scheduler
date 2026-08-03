@@ -356,6 +356,51 @@
         }
       }
     },
+    "/api/v1/schedule/export.json": {
+      "get": {
+        "summary": "Export Family Records",
+        "description": "Downloadable JSON archive of durable family custody records.",
+        "operationId": "export_family_records_api_v1_schedule_export_json_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/schedule/feed.ics": {
       "get": {
         "summary": "Get Calendar Feed",

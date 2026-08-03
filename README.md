@@ -241,11 +241,43 @@ Notes:
 - **Run exactly one machine / one uvicorn process.** This is how the app is currently configured — `fly.toml` (`min_machines_running = 1`, `auto_stop_machines = 'off'`) plus the Dockerfile `CMD` (a single uvicorn process, no `--workers`). Note that `min_machines_running` is a floor, not a ceiling: nothing prevents `fly scale count 2`, so this is a rule you keep, not one Fly keeps for you. Two independent reasons:
   - **SQLite volume — data integrity, applies now.** The `sqlite_data` volume attaches to exactly one machine at a time. A second machine does not share the database; it gets its own empty volume, producing two silently diverging copies of the calendar. This holds regardless of whether SMS is live.
   - **Single writer to the checkpoint — applies once SMS is live.** In-flight handshakes are now durable: the LangGraph checkpoint and the phone→thread registry are both written to `custody.db`, so a restart or deploy resumes a paused conversation instead of dropping it. That state lives on the volume, though, so it inherits the same one-machine limit as everything else there.
-- **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Deleting `/data/custody.db` permanently destroys family data — never use that to rotate a passcode (use **Passcode settings** instead). It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly.
+- **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Deleting `/data/custody.db` permanently destroys family data — never use that to rotate a passcode (use **Passcode settings** instead). It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly. Prefer the **Backup** section below for a family-of-record copy.
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
 - The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
 - `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
 - `ANTHROPIC_API_KEY` is optional on Fly. When unset, the API uses the deterministic heuristic parser only (no LLM calls, no cost). When set, ambiguous SMS fall through to Claude (`LLMIntentParser`) behind the same fail-safe contract — clarification SMS, never a guessed draft. Set a spend limit on a dedicated Anthropic Console workspace and scope the key to that workspace before enabling, so a runaway can't reach the main balance. Override the model with `CONCIERGE_LLM_MODEL` if needed (default `claude-opus-4-8`).
+
+### Backup (family of record)
+
+Two layers — use both periodically. Neither encrypts the file for you; keep copies on a private drive.
+
+**1. JSON archive (readable overrides + audit)**
+
+Any signed-in family member can download from the schedule page (**Download records**), or:
+
+```powershell
+# After minting a token via POST /api/v1/auth/token
+curl.exe -sL -H "Authorization: Bearer <ACCESS_TOKEN>" `
+  -o "custody-export.json" `
+  https://custody-scheduler-api.fly.dev/api/v1/schedule/export.json
+```
+
+The export includes family baseline, users (contacts only — no passcode hashes or calendar feed tokens), all overrides, audit logs, and SMS opt-outs for family phones. It is archive-only (no import path yet). Optional: schedule that curl weekly via Task Scheduler / cron with a refreshed token.
+
+**2. Full SQLite file (disaster restore)**
+
+Make a WAL-safe copy on the machine, then fetch it locally:
+
+```powershell
+fly ssh console -a custody-scheduler-api
+# inside the VM:
+sqlite3 /data/custody.db ".backup '/data/custody-backup.db'"
+exit
+
+fly ssh sftp get -a custody-scheduler-api /data/custody-backup.db ./custody-backup.db
+```
+
+Restore means replacing `/data/custody.db` with a known-good copy on a stopped or single machine — treat that as a last resort and keep the dated backup elsewhere first.
 
 ### Private family launch — seed & re-seed
 

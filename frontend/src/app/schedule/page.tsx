@@ -10,8 +10,10 @@ import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PasscodeSettings } from "@/components/PasscodeSettings";
 import { PendingOverrides } from "@/components/PendingOverrides";
+import { RecordsExport } from "@/components/RecordsExport";
 import { useSchedule } from "@/hooks/useSchedule";
 import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
+import { downloadFamilyExportRequest } from "@/lib/api/export";
 import {
   changePasscodeRequest,
   fetchMeRequest,
@@ -101,6 +103,10 @@ export default function SchedulePage() {
           <PasscodeSettings
             key={`passcode-${authToken}`}
             changePasscode={changePasscodeRequest}
+          />
+          <RecordsExport
+            key={`export-${authToken}`}
+            downloadFamilyExport={downloadFamilyExportRequest}
           />
         </div>
       ) : null}
