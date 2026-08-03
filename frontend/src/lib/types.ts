@@ -14,6 +14,7 @@ export interface ScheduleOverride {
   status: OverrideStatus;
   expires_at?: string | null;
   requested_by_user_id?: number | null;
+  requested_by_label?: string | null;
 }
 
 export interface DailyCustodyState {

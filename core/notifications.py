@@ -78,3 +78,17 @@ def override_decided_email(
             "The calendar is unchanged."
         )
     return subject, body
+
+
+def override_requested_sms(
+    *,
+    requester_label: str,
+    override_date: date,
+    end_date: date | None = None,
+) -> str:
+    """Short SMS ping when a web override is created (not a full handshake)."""
+    when = format_override_dates(override_date, end_date)
+    return (
+        f"{requester_label} requested a schedule change for {when}. "
+        "Open the schedule to approve or decline. Reply STOP to opt out."
+    )

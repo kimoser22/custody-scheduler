@@ -23,3 +23,8 @@ STILL_OPTED_OUT_REPLY = (
     f"You are opted out of {PROGRAM_NAME} messages. "
     "Reply START to receive scheduling texts again."
 )
+
+REQUEST_WITHDRAWN_SMS = (
+    f"{PROGRAM_NAME}: the other parent withdrew their schedule change request "
+    "and opted out of SMS. Nothing was changed on the calendar."
+)

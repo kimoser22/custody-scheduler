@@ -11,6 +11,7 @@ from api.dependencies import (
     CurrentUser,
     NotifierDep,
     SessionDep,
+    SmsDep,
     get_current_user,
     require_parent_role,
 )
@@ -18,7 +19,10 @@ from core.notifications import (
     Notifier,
     override_decided_email,
     override_requested_email,
+    override_requested_sms,
 )
+from concierge.ports import SmsGateway
+from concierge.repos import SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
 from core.ics import build_custody_ics
@@ -78,7 +82,11 @@ def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
     )
 
 
-def _to_domain(row: OverrideTable) -> ScheduleOverride:
+def _to_domain(
+    row: OverrideTable,
+    *,
+    requested_by_label: str | None = None,
+) -> ScheduleOverride:
     return ScheduleOverride(
         id=row.id,
         override_date=row.override_date,
@@ -90,6 +98,7 @@ def _to_domain(row: OverrideTable) -> ScheduleOverride:
         status=OverrideStatus(row.status),
         expires_at=row.expires_at,
         requested_by_user_id=row.requested_by_user_id,
+        requested_by_label=requested_by_label,
     )
 
 
@@ -139,6 +148,25 @@ def _queue_email(
     if not to:
         return
     background_tasks.add_task(_send_safely, notifier, to, subject, body)
+
+
+def _send_sms_safely(sms: SmsGateway, to: str, body: str) -> None:
+    try:
+        sms.send(to=to, body=body)
+    except Exception:  # noqa: BLE001 — deliberately last-resort
+        _logger.warning("SMS to %s failed", to, exc_info=True)
+
+
+def _queue_sms(
+    background_tasks: BackgroundTasks,
+    sms: SmsGateway,
+    *,
+    to: str | None,
+    body: str,
+) -> None:
+    if not to:
+        return
+    background_tasks.add_task(_send_sms_safely, sms, to, body)
 
 
 def _load_overrides(session: Session, family_id: int) -> list[ScheduleOverride]:
@@ -218,7 +246,7 @@ def list_pending_overrides(
     session: SessionDep,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> list[ScheduleOverride]:
-    # Exclude requests whose 24h window has closed. Without this an expired
+    # Exclude requests whose approval window has closed. Without this an expired
     # request still shows as "waiting for the other parent" and the approve
     # button 410s. A read endpoint does not write, so flipping the stored status
     # stays with the decision path and the sweep endpoint below.
@@ -230,7 +258,29 @@ def list_pending_overrides(
             OverrideTable.expires_at > now,
         )
     ).all()
-    return [_to_domain(row) for row in rows]
+    labels: dict[int, str] = {}
+    requester_ids = {
+        row.requested_by_user_id
+        for row in rows
+        if row.requested_by_user_id is not None
+    }
+    if requester_ids:
+        for user in session.exec(
+            select(UserTable).where(UserTable.id.in_(requester_ids))
+        ).all():
+            assert user.id is not None
+            labels[user.id] = user.custody_label or f"user {user.id}"
+    return [
+        _to_domain(
+            row,
+            requested_by_label=(
+                labels.get(row.requested_by_user_id)
+                if row.requested_by_user_id is not None
+                else None
+            ),
+        )
+        for row in rows
+    ]
 
 
 @schedule_router.post("/overrides")
@@ -239,6 +289,7 @@ def create_override(
     background_tasks: BackgroundTasks,
     session: SessionDep,
     notifier: NotifierDep,
+    sms: SmsDep,
     audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
@@ -276,8 +327,9 @@ def create_override(
     )
 
     counterparty = _other_parent(session, current_user.family_id, current_user.id)
+    requester_label = _label(_user(session, current_user.id), current_user.role)
     subject, body = override_requested_email(
-        requester_label=_label(_user(session, current_user.id), current_user.role),
+        requester_label=requester_label,
         override_date=row.override_date,
         end_date=row.end_date,
         override_type=row.override_type,
@@ -290,6 +342,21 @@ def create_override(
         to=counterparty.email if counterparty else None,
         subject=subject,
         body=body,
+    )
+
+    sms_to: str | None = None
+    if counterparty and counterparty.phone:
+        if not SqlOptOutStore(session).is_opted_out(counterparty.phone):
+            sms_to = counterparty.phone
+    _queue_sms(
+        background_tasks,
+        sms,
+        to=sms_to,
+        body=override_requested_sms(
+            requester_label=requester_label,
+            override_date=row.override_date,
+            end_date=row.end_date,
+        ),
     )
     return _to_domain(row)
 

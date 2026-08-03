@@ -12,7 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from api.dependencies import get_current_user, get_notifier
+from api.dependencies import get_current_user, get_notifier, get_sms_gateway
+from concierge.ports import FakeSmsGateway
+from concierge.repos import SqlOptOutStore
 from core.models import OverrideStatus, OverrideType, ParentRole
 from core.notifications import FakeNotifier
 from database.schema import AuditLogTable, OverrideTable, UserTable
@@ -20,6 +22,8 @@ from main import app
 
 PARENT_A_EMAIL = "parent.a@example.com"
 PARENT_B_EMAIL = "parent.b@example.com"
+PARENT_A_PHONE = "+15550001"
+PARENT_B_PHONE = "+15550002"
 
 OVERRIDE_PAYLOAD = {
     "override_date": "2026-08-07",
@@ -50,6 +54,8 @@ def _seed_parents(
     *,
     parent_a_email: str | None = PARENT_A_EMAIL,
     parent_b_email: str | None = PARENT_B_EMAIL,
+    parent_a_phone: str | None = PARENT_A_PHONE,
+    parent_b_phone: str | None = PARENT_B_PHONE,
 ) -> None:
     session.add(
         UserTable(
@@ -58,6 +64,7 @@ def _seed_parents(
             role="Parent",
             custody_label="Parent A",
             email=parent_a_email,
+            phone=parent_a_phone,
         )
     )
     session.add(
@@ -67,6 +74,7 @@ def _seed_parents(
             role="Parent",
             custody_label="Parent B",
             email=parent_b_email,
+            phone=parent_b_phone,
         )
     )
     session.commit()
@@ -77,6 +85,13 @@ def _notifier() -> FakeNotifier:
     notifier = FakeNotifier()
     app.dependency_overrides[get_notifier] = lambda: notifier
     return notifier
+
+
+@pytest.fixture(name="sms")
+def _sms() -> FakeSmsGateway:
+    gateway = FakeSmsGateway()
+    app.dependency_overrides[get_sms_gateway] = lambda: gateway
+    return gateway
 
 
 def _act_as(user_id: int, label: str) -> None:
@@ -107,6 +122,65 @@ def test_requesting_an_override_emails_the_other_parent(
     recipient, subject, body = notifier.sent[0]
     assert recipient == PARENT_B_EMAIL
     assert "2026-08-07" in f"{subject}{body}"
+
+
+def test_requesting_an_override_sms_pings_the_other_parent(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    notifier: FakeNotifier,
+    sms: FakeSmsGateway,
+) -> None:
+    _seed_parents(session_fixture)
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    assert len(sms.sent) == 1
+    to, body = sms.sent[0]
+    assert to == PARENT_B_PHONE
+    assert "2026-08-07" in body
+    assert "Parent A" in body
+    assert len(notifier.sent) == 1  # email still sent
+
+
+def test_web_create_skips_sms_when_counterparty_opted_out(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    notifier: FakeNotifier,
+    sms: FakeSmsGateway,
+) -> None:
+    _seed_parents(session_fixture)
+    SqlOptOutStore(session_fixture).opt_out(PARENT_B_PHONE)
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    assert sms.sent == []
+    assert len(notifier.sent) == 1
+
+
+def test_web_create_skips_sms_when_counterparty_has_no_phone(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    notifier: FakeNotifier,
+    sms: FakeSmsGateway,
+) -> None:
+    _seed_parents(session_fixture, parent_b_phone=None)
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    assert sms.sent == []
+    assert len(notifier.sent) == 1
 
 
 def test_requester_is_never_emailed_about_their_own_request(

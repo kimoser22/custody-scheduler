@@ -345,6 +345,8 @@ export interface components {
             requested_by_user_id?: number | null;
             /** End Date */
             end_date?: string | null;
+            /** Requested By Label */
+            requested_by_label?: string | null;
         };
         /** TokenRequest */
         TokenRequest: {

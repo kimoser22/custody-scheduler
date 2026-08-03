@@ -21,6 +21,7 @@ import {
   createOverrideRequest,
   decideOverrideRequest,
   fetchPendingOverridesRequest,
+  sweepExpiredOverridesRequest,
 } from "@/lib/api/overrides";
 import {
   type Session,
@@ -156,6 +157,7 @@ export default function SchedulePage() {
             key={`${authToken}-${pendingListVersion}`}
             fetchPendingOverrides={fetchPendingOverridesRequest}
             decideOverride={decideOverrideRequest}
+            sweepExpiredOverrides={sweepExpiredOverridesRequest}
             currentUserId={currentUserId}
             onDecided={() => void refetch()}
           />

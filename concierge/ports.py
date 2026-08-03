@@ -96,6 +96,8 @@ class ThreadRegistry(Protocol):
 
     def clear(self, phone: str) -> None: ...
 
+    def clear_by_thread(self, thread_id: str) -> None: ...
+
 
 class AuditRepository(Protocol):
     def append(
@@ -143,6 +145,13 @@ class OverrideRepository(Protocol):
         decided_by_user_id: int,
         decided_at: datetime,
     ) -> ScheduleOverride: ...
+
+    def list_open_by_requester(
+        self,
+        user_id: int,
+        *,
+        now: datetime,
+    ) -> list[ScheduleOverride]: ...
 
 
 @dataclass

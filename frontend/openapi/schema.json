@@ -979,6 +979,17 @@
               }
             ],
             "title": "End Date"
+          },
+          "requested_by_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Label"
           }
         },
         "type": "object",

@@ -15,6 +15,8 @@ export type CreateOverride = (
 
 export type FetchPendingOverrides = () => Promise<ScheduleOverride[]>;
 
+export type SweepExpiredOverrides = () => Promise<void>;
+
 export type DecideOverride = (
   overrideId: number,
   approve: boolean,

@@ -134,6 +134,26 @@ class SqlOverrideRepository:
         self._session.refresh(row)
         return _to_domain(row)
 
+    def list_open_by_requester(
+        self,
+        user_id: int,
+        *,
+        now: datetime,
+    ) -> list[ScheduleOverride]:
+        rows = self._session.exec(
+            select(OverrideTable).where(
+                OverrideTable.requested_by_user_id == user_id,
+                OverrideTable.status.in_(
+                    [
+                        OverrideStatus.DRAFT.value,
+                        OverrideStatus.PENDING.value,
+                    ]
+                ),
+                OverrideTable.expires_at > now,
+            )
+        ).all()
+        return [_to_domain(row) for row in rows]
+
 
 class SqlThreadRegistry:
     """Durable phone -> open-thread mapping.
@@ -168,6 +188,17 @@ class SqlThreadRegistry:
             return
         self._session.delete(row)
         self._session.commit()
+
+    def clear_by_thread(self, thread_id: str) -> None:
+        rows = self._session.exec(
+            select(HandshakeThreadTable).where(
+                HandshakeThreadTable.thread_id == thread_id
+            )
+        ).all()
+        for row in rows:
+            self._session.delete(row)
+        if rows:
+            self._session.commit()
 
 
 class SqlAuditRepository:

@@ -341,6 +341,7 @@ def test_pending_overrides_listing_returns_pending_for_family(
     assert len(body) == 1
     assert body[0]["status"] == "Pending"
     assert body[0]["requested_by_user_id"] == mock_parent.id
+    assert body[0]["requested_by_label"] == mock_parent.custody_label
 
 
 def test_pending_overrides_listing_excludes_decided_requests(
