@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
@@ -25,6 +26,7 @@ from concierge.ports import SmsGateway
 from concierge.repos import SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
+from core.export import build_family_export
 from core.ics import build_custody_ics
 from core.models import (
     BaselineSchedule,
@@ -198,6 +200,33 @@ def get_schedule(
         overrides=overrides,
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@schedule_router.get("/export.json")
+def export_family_records(
+    session: SessionDep,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> Response:
+    """Downloadable JSON archive of durable family custody records."""
+    user = _user(session, current_user.id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    payload = build_family_export(session, user.family_id)
+    body = json.dumps(payload, indent=2, sort_keys=False)
+    today = datetime.now(timezone.utc).date().isoformat()
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="custody-export-{today}.json"'
+            ),
+            "Cache-Control": "no-store",
+        },
     )
 
 
