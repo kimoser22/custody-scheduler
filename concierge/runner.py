@@ -89,9 +89,18 @@ class LangGraphConciergeRunner:
         sender = self.deps.resolver.resolve(from_phone)
         counterparty_phone: str | None = None
         if sender is not None:
-            counterparty = self.deps.counterparty_by_family.get(sender.family_id)
-            if counterparty is not None:
-                _, counterparty_phone, _ = counterparty
+            # Prefer parents_by_family (prod factory shape); fall back to the
+            # legacy single-counterparty map used by tests/simulator.
+            parents = (self.deps.parents_by_family or {}).get(sender.family_id)
+            if parents:
+                for user_id, phone, _label in parents:
+                    if user_id != sender.user_id:
+                        counterparty_phone = phone
+                        break
+            else:
+                counterparty = self.deps.counterparty_by_family.get(sender.family_id)
+                if counterparty is not None:
+                    _, counterparty_phone, _ = counterparty
 
         thread_ids: set[str] = set()
         own_thread = self.registry.get(from_phone)
