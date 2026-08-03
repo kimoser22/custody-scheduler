@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, TypedDict
 
 from core.approvals import ApprovalError, Decision, decide_override
 from core.handshake import HandshakeError, InitiatorDecision, apply_initiator_confirm
 from core.models import OverrideStatus
+from core.notifications import format_override_dates
 from concierge.ports import (
     AuditRepository,
     IdempotencyStore,
@@ -21,6 +22,21 @@ from concierge.ports import (
 
 
 OVERRIDE_TTL = timedelta(hours=24)
+
+
+def _intent_span(intent: dict[str, Any]) -> str:
+    """Render the requested dates for SMS copy.
+
+    Every message the parents see must show the whole span: the confirmation is
+    the requester's only chance to catch a misread range, and the proposal is
+    what the counterparty actually consents to. Shares
+    core.notifications.format_override_dates so SMS, email, and the web ping
+    phrase spans identically.
+    """
+    start = date.fromisoformat(intent["override_date"])
+    raw_end = intent.get("end_date")
+    end = date.fromisoformat(raw_end) if raw_end else None
+    return format_override_dates(start, end)
 
 UNCLEAR_REQUEST_SMS = (
     "Sorry, I couldn't understand that swap request. Please text a date and "
@@ -135,6 +151,7 @@ def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
         description=intent.reason,
         requested_by_user_id=state["initiator_user_id"],
         expires_at=deps.now + OVERRIDE_TTL,
+        end_date=intent.end_date,
     )
     assert draft.id is not None
     deps.audit.append(
@@ -149,7 +166,9 @@ def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
         **state,
         "override_id": draft.id,
         "parsed_intent": {
+            # Checkpointed by LangGraph, so keep it JSON-serializable.
             "override_date": intent.override_date.isoformat(),
+            "end_date": intent.end_date.isoformat() if intent.end_date else None,
             "assigned_parent": intent.assigned_parent.value,
             "reason": intent.reason,
         },
@@ -161,7 +180,7 @@ def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
 def draft_confirmation_sms(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = state["parsed_intent"]
     body = (
-        f"You want to swap {intent['override_date']} to {intent['assigned_parent']}. "
+        f"You want to swap {_intent_span(intent)} to {intent['assigned_parent']}. "
         "Reply YES to send to the other parent, or NO to cancel."
     )
     deps.sms.send(state["initiator_phone"], body)
@@ -223,7 +242,7 @@ def process_initiator_reply(state: ConciergeState, deps: ConciergeDeps) -> Conci
 def send_proposal_to_counterparty(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = state["parsed_intent"]
     body = (
-        f"{state['initiator_label']} requests a schedule swap for {intent['override_date']}. "
+        f"{state['initiator_label']} requests a schedule swap for {_intent_span(intent)}. "
         f"Reason: '{intent['reason']}'. Reply ACCEPT or DENY."
     )
     deps.sms.send(state["counterparty_phone"], body)
@@ -325,7 +344,7 @@ def commit_transaction(state: ConciergeState, deps: ConciergeDeps) -> ConciergeS
 
 def notify_final_success(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = state["parsed_intent"]
-    body = f"Confirmed: {intent['override_date']} is now with {intent['assigned_parent']}."
+    body = f"Confirmed: {_intent_span(intent)} is now with {intent['assigned_parent']}."
     deps.sms.send(state["initiator_phone"], body)
     deps.sms.send(state["counterparty_phone"], body)
     return {**state, "current_step": "completed"}

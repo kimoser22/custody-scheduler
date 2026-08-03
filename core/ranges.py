@@ -4,6 +4,21 @@ from datetime import date
 
 from core.models import ScheduleOverride
 
+# Activation writes one active_custody_days row per covered day, so an
+# absurd span (a typo'd year) should be refused at the edge rather than
+# expanded. Shared by the web validator and both SMS parsers so there is one
+# definition of "too long" rather than three.
+MAX_RANGE_DAYS = 366
+
+
+def is_valid_range(start: date, end: date | None) -> bool:
+    """True when end is absent (single day) or forms a sane inclusive span."""
+    if end is None:
+        return True
+    if end < start:
+        return False
+    return (end - start).days <= MAX_RANGE_DAYS
+
 
 def effective_end(override: ScheduleOverride) -> date:
     """Inclusive end; omitted end_date means a single-day override."""
