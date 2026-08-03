@@ -35,6 +35,7 @@ describe("PendingOverrides", () => {
     await waitFor(() => {
       expect(screen.getByText(/2026-01-15/)).toBeInTheDocument();
     });
+    expect(screen.getByText(/Holiday \/ vacation/)).toBeInTheDocument();
     expect(screen.getByText(/Take the kids to grandma's/)).toBeInTheDocument();
     expect(screen.getByText(/Parent B/)).toBeInTheDocument();
     expect(screen.getByText(/Requested by user 101/)).toBeInTheDocument();

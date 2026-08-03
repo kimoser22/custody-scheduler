@@ -41,6 +41,7 @@ schedule_router = APIRouter(prefix="/api/v1/schedule")
 
 DEFAULT_FAMILY_ID = 1
 OVERRIDE_REQUEST_TTL = timedelta(hours=24)
+PLANNED_OVERRIDE_TTL = timedelta(days=7)
 FEED_PAST_DAYS = 30
 FEED_FUTURE_DAYS = 180
 
@@ -48,6 +49,21 @@ DEFAULT_BASELINE = BaselineSchedule(
     epoch_start_date=date(2026, 1, 5),
     starting_parent=ParentRole.PARENT_A,
 )
+
+
+def _request_ttl(override: ScheduleOverride) -> timedelta:
+    """Holiday and multi-day blocks get a week; one-day swaps stay 24h."""
+    end = override.end_date if override.end_date is not None else override.override_date
+    multi_day = end > override.override_date
+    if override.override_type == OverrideType.HOLIDAY or multi_day:
+        return PLANNED_OVERRIDE_TTL
+    return OVERRIDE_REQUEST_TTL
+
+
+def _date_span_label(start: date, end: date | None) -> str:
+    if end is None or end == start:
+        return str(start)
+    return f"{start} to {end}"
 
 
 def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
@@ -243,17 +259,18 @@ def create_override(
         is_active=False,
         status=OverrideStatus.PENDING.value,
         requested_by_user_id=current_user.id,
-        expires_at=now + OVERRIDE_REQUEST_TTL,
+        expires_at=now + _request_ttl(override),
     )
     session.add(row)
     session.commit()
     session.refresh(row)
 
+    date_label = _date_span_label(row.override_date, row.end_date)
     audit.append(
         family_id=current_user.family_id,
         actor_role=current_user.role,
         action_type="override_requested",
-        description=f"Override {row.id} requested for {row.override_date}",
+        description=f"Override {row.id} requested for {date_label}",
         previous_state_id=row.id,
         timestamp=now,
     )
@@ -262,6 +279,7 @@ def create_override(
     subject, body = override_requested_email(
         requester_label=_label(_user(session, current_user.id), current_user.role),
         override_date=row.override_date,
+        end_date=row.end_date,
         override_type=row.override_type,
         description=row.description,
         expires_at=row.expires_at,
@@ -360,11 +378,12 @@ def decide_override_request(
     session.refresh(row)
 
     approved = result.new_status == OverrideStatus.APPROVED
+    date_label = _date_span_label(row.override_date, row.end_date)
     audit.append(
         family_id=current_user.family_id,
         actor_role=current_user.role,
         action_type="override_approved" if approved else "override_rejected",
-        description=f"Override {row.id} {row.status.lower()} for {row.override_date}",
+        description=f"Override {row.id} {row.status.lower()} for {date_label}",
         previous_state_id=row.id,
         timestamp=now,
     )
@@ -373,6 +392,7 @@ def decide_override_request(
     subject, body = override_decided_email(
         decider_label=_label(_user(session, current_user.id), current_user.role),
         override_date=row.override_date,
+        end_date=row.end_date,
         approved=approved,
     )
     _queue_email(

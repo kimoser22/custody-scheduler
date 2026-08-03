@@ -433,6 +433,71 @@ def test_parent_can_request_date_range_override(
     assert body["end_date"] == "2026-01-17"
 
 
+def test_holiday_request_gets_seven_day_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.HOLIDAY.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-01",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(days=7) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(days=7) + timedelta(seconds=5)
+
+
+def test_multi_day_mutual_swap_gets_seven_day_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.MUTUAL_SWAP.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-03",
+            "description": "Weekend swap",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(days=7) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(days=7) + timedelta(seconds=5)
+
+
+def test_single_day_mutual_swap_keeps_twenty_four_hour_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.MUTUAL_SWAP.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-01",
+            "description": "One day",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(hours=24) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(hours=24) + timedelta(seconds=5)
+
+
 def test_end_date_before_start_is_rejected(
     client_fixture: TestClient,
     mock_parent: UserTable,

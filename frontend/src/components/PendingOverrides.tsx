@@ -96,7 +96,11 @@ export function PendingOverrides({
                   {request.end_date && request.end_date !== request.override_date
                     ? `${request.override_date} to ${request.end_date}`
                     : request.override_date}{" "}
-                  &mdash; {request.assigned_parent} ({request.override_type})
+                  &mdash; {request.assigned_parent} (
+                  {request.override_type === "Holiday"
+                    ? "Holiday / vacation"
+                    : request.override_type}
+                  )
                 </div>
                 <div className="text-slate-600">{request.description}</div>
                 {request.requested_by_user_id != null ? (

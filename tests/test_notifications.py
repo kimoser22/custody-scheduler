@@ -95,6 +95,20 @@ def test_requested_email_names_date_parent_and_type() -> None:
     assert "soccer tournament" in combined
 
 
+def test_requested_email_includes_date_range() -> None:
+    subject, body = override_requested_email(
+        requester_label="Parent A",
+        override_date=date(2026, 8, 7),
+        end_date=date(2026, 8, 10),
+        override_type="Holiday",
+        description="Spring break",
+        expires_at=datetime(2026, 8, 1, 12, 0),
+    )
+    combined = f"{subject}\n{body}"
+    assert "2026-08-07 to 2026-08-10" in combined
+    assert "Holiday" in combined
+
+
 def test_decided_email_states_the_outcome() -> None:
     approved_subject, approved_body = override_decided_email(
         decider_label="Parent B", override_date=date(2026, 8, 7), approved=True
@@ -105,6 +119,16 @@ def test_decided_email_states_the_outcome() -> None:
     assert "approved" in f"{approved_subject} {approved_body}".lower()
     assert "declined" in f"{rejected_subject} {rejected_body}".lower()
     assert "2026-08-07" in f"{approved_subject}{approved_body}"
+
+
+def test_decided_email_includes_range() -> None:
+    subject, body = override_decided_email(
+        decider_label="Parent B",
+        override_date=date(2026, 8, 7),
+        end_date=date(2026, 8, 9),
+        approved=True,
+    )
+    assert "2026-08-07 to 2026-08-09" in f"{subject}\n{body}"
 
 
 def test_fake_notifier_records_messages() -> None:

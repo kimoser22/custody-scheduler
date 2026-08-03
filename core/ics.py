@@ -67,11 +67,18 @@ def _vevent_lines(
         f"DTSTAMP:{_format_dtstamp(stamped)}",
         f"DTSTART;VALUE=DATE:{_format_date(day.current_date)}",
         f"DTEND;VALUE=DATE:{_format_date(end)}",
-        f"SUMMARY:{escape_ics_text(f'Custody: {day.final_parent.value}')}",
     ]
     if day.is_overridden and day.override_details is not None:
+        details = day.override_details
+        summary = (
+            f"Custody: {day.final_parent.value} ({details.override_type.value})"
+        )
+        lines.append(f"SUMMARY:{escape_ics_text(summary)}")
+        if details.description:
+            lines.append(f"DESCRIPTION:{escape_ics_text(details.description)}")
+    else:
         lines.append(
-            f"DESCRIPTION:{escape_ics_text(day.override_details.description)}"
+            f"SUMMARY:{escape_ics_text(f'Custody: {day.final_parent.value}')}"
         )
     lines.append("END:VEVENT")
     return lines

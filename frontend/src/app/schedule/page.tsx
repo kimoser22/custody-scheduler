@@ -116,7 +116,7 @@ export default function SchedulePage() {
           Parent B
         </span>
         <span className="rounded border px-2 py-1 ring-2 ring-amber-500">
-          Override
+          Holiday / override
         </span>
       </div>
 

@@ -163,7 +163,7 @@ def test_feed_includes_approved_override_description(
         "/api/v1/schedule/feed.ics", params={"token": token}
     ).text
     assert "DESCRIPTION:Feed override note" in body
-    assert "SUMMARY:Custody: Parent B" in body
+    assert "SUMMARY:Custody: Parent B (Holiday)" in body
 
 
 def test_calendar_feed_token_migration_idempotent() -> None:

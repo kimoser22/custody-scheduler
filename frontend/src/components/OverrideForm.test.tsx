@@ -22,7 +22,7 @@ describe("OverrideForm", () => {
     );
 
     await user.type(screen.getByLabelText("Description"), "Holiday");
-    await user.click(screen.getByRole("button", { name: "Request override" }));
+    await user.click(screen.getByRole("button", { name: "Request holiday block" }));
 
     await waitFor(() => {
       expect(
@@ -47,8 +47,11 @@ describe("OverrideForm", () => {
       />,
     );
 
+    expect(
+      screen.getByText(/Request holiday \/ vacation block for 2026-01-15/),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Description"), "Holiday");
-    await user.click(screen.getByRole("button", { name: "Request override" }));
+    await user.click(screen.getByRole("button", { name: "Request holiday block" }));
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalled();
@@ -72,7 +75,7 @@ describe("OverrideForm", () => {
     await user.clear(screen.getByLabelText("End date"));
     await user.type(screen.getByLabelText("End date"), "2026-01-17");
     await user.type(screen.getByLabelText("Description"), "Long weekend");
-    await user.click(screen.getByRole("button", { name: "Request override" }));
+    await user.click(screen.getByRole("button", { name: "Request holiday block" }));
 
     await waitFor(() => {
       expect(createOverride).toHaveBeenCalledWith(

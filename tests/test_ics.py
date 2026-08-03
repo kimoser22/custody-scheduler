@@ -60,7 +60,7 @@ def test_build_custody_ics_vevent_fields() -> None:
     assert "DTSTAMP:20260106T153045Z" in ics
     assert "DTSTART;VALUE=DATE:20260106" in ics
     assert "DTEND;VALUE=DATE:20260107" in ics
-    assert "SUMMARY:Custody: Parent B" in ics
+    assert "SUMMARY:Custody: Parent B (Holiday)" in ics
     assert "DESCRIPTION:Special\\, day\\; note" in ics
 
 

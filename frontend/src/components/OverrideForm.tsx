@@ -30,6 +30,16 @@ export function OverrideForm({
     endDate && endDate !== initialDate
       ? `${initialDate} to ${endDate}`
       : initialDate;
+  const isHoliday = overrideType === "Holiday";
+  const heading = isHoliday
+    ? `Request holiday / vacation block for ${rangeLabel}`
+    : `Request override for ${rangeLabel}`;
+  const supportCopy = isHoliday
+    ? "Ask the other parent to approve this holiday or vacation custody block before it appears on the calendar."
+    : "The other parent will need to approve this before it takes effect.";
+  const descriptionPlaceholder = isHoliday
+    ? "Spring break"
+    : "Reason for the change";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -64,10 +74,8 @@ export function OverrideForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded border p-4">
-      <h2 className="text-lg font-semibold">Request override for {rangeLabel}</h2>
-      <p className="text-sm text-slate-600">
-        The other parent will need to approve this before it takes effect.
-      </p>
+      <h2 className="text-lg font-semibold">{heading}</h2>
+      <p className="text-sm text-slate-600">{supportCopy}</p>
       <label className="block text-sm">
         End date
         <input
@@ -111,6 +119,7 @@ export function OverrideForm({
         <input
           aria-label="Description"
           value={description}
+          placeholder={descriptionPlaceholder}
           onChange={(event) => setDescription(event.target.value)}
           className="mt-1 block w-full rounded border px-2 py-1"
         />
@@ -121,7 +130,7 @@ export function OverrideForm({
         disabled={isSubmitting}
         className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50"
       >
-        Request override
+        {isHoliday ? "Request holiday block" : "Request override"}
       </button>
     </form>
   );
