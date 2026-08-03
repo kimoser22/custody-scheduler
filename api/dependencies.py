@@ -8,8 +8,8 @@ from sqlmodel import Session
 from api.auth_tokens import TokenError, verify_token
 from api.email_notifier import SmtpEmailNotifier
 from concierge.adapters import EnvTwilioSmsGateway
-from concierge.ports import AuditRepository, SmsGateway
-from concierge.repos import SqlAuditRepository
+from concierge.ports import AuditRepository, OptOutAwareSmsGateway, SmsGateway
+from concierge.repos import SqlAuditRepository, SqlOptOutStore
 from core.notifications import Notifier
 from database.connection import get_session
 
@@ -24,9 +24,14 @@ def get_notifier() -> Notifier:
 NotifierDep = Annotated[Notifier, Depends(get_notifier)]
 
 
-def get_sms_gateway() -> SmsGateway:
-    """Twilio when configured; records locally otherwise. Override in tests."""
-    return EnvTwilioSmsGateway()
+def get_sms_gateway(session: SessionDep) -> SmsGateway:
+    """Twilio when configured; records locally otherwise. Override in tests.
+
+    Wrapped in OptOutAwareSmsGateway so suppression is structural rather than a
+    check each call site has to remember — the concierge path gets its gating
+    the same way. Keyword acknowledgements use send_forced to bypass it.
+    """
+    return OptOutAwareSmsGateway(EnvTwilioSmsGateway(), SqlOptOutStore(session))
 
 
 SmsDep = Annotated[SmsGateway, Depends(get_sms_gateway)]

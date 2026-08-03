@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from api.dependencies import get_current_user, get_notifier, get_sms_gateway
-from concierge.ports import FakeSmsGateway
+from concierge.ports import FakeSmsGateway, OptOutAwareSmsGateway
 from concierge.repos import SqlOptOutStore
 from core.models import OverrideStatus, OverrideType, ParentRole
 from core.notifications import FakeNotifier
@@ -88,10 +88,13 @@ def _notifier() -> FakeNotifier:
 
 
 @pytest.fixture(name="sms")
-def _sms() -> FakeSmsGateway:
-    gateway = FakeSmsGateway()
+def _sms(session_fixture: Session) -> FakeSmsGateway:
+    """Wrap the fake the way production wraps Twilio, so these tests exercise
+    the real opt-out gating rather than a call-site check."""
+    inner = FakeSmsGateway()
+    gateway = OptOutAwareSmsGateway(inner, SqlOptOutStore(session_fixture))
     app.dependency_overrides[get_sms_gateway] = lambda: gateway
-    return gateway
+    return inner
 
 
 def _act_as(user_id: int, label: str) -> None:

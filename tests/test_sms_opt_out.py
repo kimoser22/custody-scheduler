@@ -16,6 +16,7 @@ from concierge.ports import (
     ParsedIntent,
     ResolvedSender,
 )
+from api.dependencies import get_sms_gateway
 from concierge.repos import SqlAuditRepository, SqlOptOutStore, SqlOverrideRepository
 from concierge.runner import LangGraphConciergeRunner, classify_keyword
 from core.models import ParentRole
@@ -224,3 +225,36 @@ def test_stop_with_unformatted_phone_still_opts_out(session_fixture) -> None:
     assert opt_outs.is_opted_out("+15550001")
     assert opt_outs.is_opted_out("15550001")
     assert any("opted out" in body.lower() for _, body in inner.sent)
+
+
+# --- the web path must gate structurally, not per call site -------------------
+
+
+def test_web_sms_dependency_is_opt_out_gated(session_fixture) -> None:
+    """The concierge gets its gating from OptOutAwareSmsGateway. The web path
+    must get it the same way, so a future send site cannot forget the check and
+    silently text someone who opted out."""
+    SqlOptOutStore(session_fixture).opt_out("+15550002")
+
+    gateway = get_sms_gateway(session_fixture)
+    gateway.send("+15550002", "should be dropped")
+
+    assert isinstance(gateway, OptOutAwareSmsGateway)
+    assert gateway.inner.sent == []
+
+
+def test_web_sms_dependency_still_sends_to_active_numbers(session_fixture) -> None:
+    gateway = get_sms_gateway(session_fixture)
+    gateway.send("+15550002", "should go out")
+
+    assert len(gateway.inner.sent) == 1
+
+
+def test_web_sms_dependency_allows_forced_send(session_fixture) -> None:
+    """Keyword acknowledgements (STOP/HELP) are permitted after opt-out."""
+    SqlOptOutStore(session_fixture).opt_out("+15550002")
+
+    gateway = get_sms_gateway(session_fixture)
+    gateway.send_forced("+15550002", "You have opted out.")
+
+    assert len(gateway.inner.sent) == 1

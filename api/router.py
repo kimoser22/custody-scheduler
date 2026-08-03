@@ -23,7 +23,6 @@ from core.notifications import (
     override_requested_sms,
 )
 from concierge.ports import SmsGateway
-from concierge.repos import SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
 from core.export import build_family_export
@@ -373,14 +372,12 @@ def create_override(
         body=body,
     )
 
-    sms_to: str | None = None
-    if counterparty and counterparty.phone:
-        if not SqlOptOutStore(session).is_opted_out(counterparty.phone):
-            sms_to = counterparty.phone
+    # Opt-out suppression is enforced by the gateway itself (see
+    # api.dependencies.get_sms_gateway), so no check is needed here.
     _queue_sms(
         background_tasks,
         sms,
-        to=sms_to,
+        to=counterparty.phone if counterparty else None,
         body=override_requested_sms(
             requester_label=requester_label,
             override_date=row.override_date,
