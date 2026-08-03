@@ -1,6 +1,8 @@
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import NamedTuple
 
 from dotenv import load_dotenv
@@ -21,6 +23,9 @@ from api.twilio_webhook import twilio_router  # noqa: E402
 from database.connection import engine  # noqa: E402
 from database import schema  # noqa: E402, F401 — register table models
 from database.schema import BaselineTable, FamilyLink, UserTable  # noqa: E402
+
+_logger = logging.getLogger(__name__)
+_one_day = timedelta(days=1)
 
 
 def parse_allowed_origins(raw: str | None = None) -> list[str]:
@@ -93,6 +98,48 @@ def ensure_calendar_feed_token_column(engine_to_patch) -> None:
             "ON users (calendar_feed_token)"
         )
         connection.commit()
+
+
+def ensure_active_day_rows(engine_to_patch) -> None:
+    """Backfill active_custody_days for overrides activated before the table
+    existed (create_all adds the empty table; this reconstructs its rows).
+
+    Idempotent: existing claims are kept. If two pre-existing active overrides
+    overlap — possible only for data created before the constraint — log a
+    WARNING naming them and keep the first claimant. Never crash the boot over
+    historical data; the constraint governs everything from now on.
+    """
+    from database.schema import ActiveCustodyDayTable, OverrideTable
+
+    with Session(engine_to_patch) as session:
+        active = session.exec(
+            select(OverrideTable).where(OverrideTable.is_active.is_(True))
+        ).all()
+        overlaps: list[tuple[int, int]] = []
+        for row in active:
+            assert row.id is not None
+            end = row.end_date if row.end_date is not None else row.override_date
+            day = row.override_date
+            while day <= end:
+                existing = session.get(
+                    ActiveCustodyDayTable, (row.family_id, day)
+                )
+                if existing is None:
+                    session.add(
+                        ActiveCustodyDayTable(
+                            family_id=row.family_id, day=day, override_id=row.id
+                        )
+                    )
+                elif existing.override_id != row.id:
+                    overlaps.append((existing.override_id, row.id))
+                day += _one_day
+        session.commit()
+    if overlaps:
+        _logger.warning(
+            "active_custody_days backfill found overlapping active overrides "
+            "(kept first claimant): %s",
+            sorted(set(overlaps)),
+        )
 
 
 class SeedUser(NamedTuple):
@@ -180,6 +227,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ensure_user_email_column(engine)
     ensure_override_end_date_column(engine)
     ensure_calendar_feed_token_column(engine)
+    ensure_active_day_rows(engine)
     with Session(engine) as session:
         try:
             ensure_default_seed_data(session)

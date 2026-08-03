@@ -434,6 +434,41 @@ def test_parent_can_request_date_range_override(
     assert body["end_date"] == "2026-01-17"
 
 
+def test_range_longer_than_a_year_is_rejected(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    """Activation writes one row per day, so a typo'd far-future end date must
+    fail at request time, not insert thousands of rows at approval."""
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    payload = {
+        **OVERRIDE_PAYLOAD,
+        "override_date": "2026-01-01",
+        "end_date": "2027-01-03",  # 367 days after start
+    }
+
+    response = client_fixture.post("/api/v1/schedule/overrides", json=payload)
+
+    assert response.status_code == 400
+    assert "366" in response.json()["detail"]
+
+
+def test_range_of_exactly_a_year_is_accepted(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    payload = {
+        **OVERRIDE_PAYLOAD,
+        "override_date": "2026-01-01",
+        "end_date": "2027-01-02",  # 366 days after start
+    }
+
+    response = client_fixture.post("/api/v1/schedule/overrides", json=payload)
+
+    assert response.status_code == 200
+
+
 def test_holiday_request_gets_seven_day_ttl(
     client_fixture: TestClient,
     mock_parent: UserTable,

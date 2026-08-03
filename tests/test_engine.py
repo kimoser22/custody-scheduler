@@ -190,3 +190,35 @@ def test_single_day_when_end_date_omitted():
     assert result[1].is_overridden is True
     assert result[1].final_parent == ParentRole.PARENT_B
     assert result[2].is_overridden is False
+
+
+def test_overlap_winner_is_deterministic_by_id():
+    """Should overlapping actives ever exist (a bug elsewhere), the calendar
+    must be predictable: highest id wins, independent of list order — not
+    whatever the query happened to return last."""
+    baseline = BaselineSchedule(
+        epoch_start_date=date(2026, 1, 5),
+        starting_parent=ParentRole.PARENT_A,
+    )
+    target = date(2026, 1, 6)
+    older = ScheduleOverride(
+        id=5,
+        override_date=target,
+        assigned_parent=ParentRole.PARENT_B,
+        override_type=OverrideType.HOLIDAY,
+        description="Older",
+        is_active=True,
+    )
+    newer = ScheduleOverride(
+        id=9,
+        override_date=target,
+        assigned_parent=ParentRole.PARENT_A,
+        override_type=OverrideType.MUTUAL_SWAP,
+        description="Newer",
+        is_active=True,
+    )
+
+    for ordering in ([older, newer], [newer, older]):
+        result = calculate_schedule(baseline, ordering, target, target)
+        assert result[0].override_details == newer
+        assert result[0].final_parent == ParentRole.PARENT_A

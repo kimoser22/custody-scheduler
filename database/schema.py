@@ -85,6 +85,24 @@ class TwilioIdempotencyTable(SQLModel, table=True):
     message_sid: str = Field(unique=True, index=True)
 
 
+class ActiveCustodyDayTable(SQLModel, table=True):
+    """One row per day covered by an active override.
+
+    The composite primary key (family_id, day) IS the no-overlap constraint
+    that ix_overrides_one_active_per_date lost when overrides grew end_date:
+    two ranges can overlap without sharing a start date, but they cannot both
+    claim the same day here. Rows exist iff the override is active — written
+    and cleared inside the same transaction as the is_active flip
+    (database/activation.py).
+    """
+
+    __tablename__ = "active_custody_days"
+
+    family_id: int = Field(primary_key=True)
+    day: date = Field(primary_key=True)
+    override_id: int = Field(index=True)  # index for deactivation deletes
+
+
 class HandshakeThreadTable(SQLModel, table=True):
     """Maps a phone number to the LangGraph thread awaiting its reply.
 
