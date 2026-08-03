@@ -159,9 +159,12 @@ Without those, SMS bodies are recorded by `EnvTwilioSmsGateway` in-process (test
 retry gets dropped as a duplicate and the message is lost. Twilio errors are
 therefore logged at WARNING and swallowed. Check for them with:
 
-```bash
-fly logs | grep -i "sms send"
+```powershell
+fly logs --no-tail | Select-String "sms send"
 ```
+
+(`--no-tail` matters: without it `fly logs` follows the stream and never
+returns. On a POSIX shell, `fly logs --no-tail | grep -i "sms send"`.)
 
 The one exception is error **21610** (recipient opted out at Twilio's layer):
 that is recorded in `sms_opt_outs`, so our list converges on Twilio's and later
