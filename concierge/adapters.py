@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
 
 from sqlmodel import Session, select
 
 from concierge.phones import normalize_phone
-from concierge.ports import ParsedIntent, ResolvedSender
+from concierge.ports import ParsedIntent, RecipientOptedOutError, ResolvedSender
 from core.models import OverrideType, ParentRole
 from database.schema import UserTable
+
+_logger = logging.getLogger(__name__)
+
+# Twilio: "Attempt to send to unsubscribed recipient".
+_OPTED_OUT_ERROR_CODE = 21610
 
 
 class SqlSenderResolver:
@@ -45,13 +51,32 @@ class EnvTwilioSmsGateway:
         if not (self.account_sid and self.auth_token and self.from_number):
             return
         # Optional live send — require twilio package only when configured.
-        from twilio.rest import Client  # type: ignore
+        import twilio.rest  # type: ignore
+        from twilio.base.exceptions import TwilioException, TwilioRestException
 
-        Client(self.account_sid, self.auth_token).messages.create(
-            to=to,
-            from_=self.from_number,
-            body=body,
-        )
+        try:
+            twilio.rest.Client(self.account_sid, self.auth_token).messages.create(
+                to=to,
+                from_=self.from_number,
+                body=body,
+            )
+        except TwilioRestException as error:
+            if error.code == _OPTED_OUT_ERROR_CODE:
+                # Actionable rather than transient: hand it to the gateway that
+                # owns the opt-out store so our list catches up with Twilio's.
+                raise RecipientOptedOutError(to) from None
+            _logger.warning(
+                "SMS send to %s failed: Twilio error %s (HTTP %s)",
+                to,
+                error.code,
+                error.status,
+            )
+        except (TwilioException, OSError):
+            # Connection, timeout, or client misconfiguration. handle_sms has
+            # already claimed this message_sid, so raising would 500 the
+            # webhook and Twilio's retry would be dropped as a duplicate —
+            # losing the message entirely. Log and move on instead.
+            _logger.warning("SMS send to %s failed", to, exc_info=True)
 
     def send_forced(self, to: str, body: str) -> None:
         self.send(to=to, body=body)

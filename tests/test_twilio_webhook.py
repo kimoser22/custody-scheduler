@@ -5,6 +5,7 @@ import hmac
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+from twilio.base.exceptions import TwilioRestException
 
 from api.twilio_webhook import get_concierge_runner
 from concierge.runner import RecordingConciergeRunner
@@ -219,5 +220,70 @@ def test_twilio_webhook_uses_the_request_scoped_session_not_a_leaked_one(
     # would have been created in the test session.
     drafts = session_fixture.exec(
         select(OverrideTable).where(OverrideTable.requested_by_user_id == 9101)
+    ).all()
+    assert len(drafts) == 1
+
+
+def test_failed_outbound_reply_still_acks_the_inbound_message(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The invariant this whole change exists for.
+
+    handle_sms claims the message_sid before doing any work, so a 500 here is
+    unrecoverable: Twilio's retry is dropped as a duplicate, the inbound is
+    consumed, and the handshake is stuck with nobody told. A send failure must
+    therefore degrade to a logged warning and a normal 200, with the draft
+    still created exactly as on the success path.
+    """
+    # Configuring the gateway means TWILIO_AUTH_TOKEN is set, which also turns
+    # signature verification on — so sign the request rather than opting out.
+    auth_token = "token-test"
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", auth_token)
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15550000000")
+
+    class ExplodingMessages:
+        def create(self, **kwargs):
+            raise TwilioRestException(
+                status=500, uri="/Messages", msg="service unavailable", code=20500
+            )
+
+    class ExplodingClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.messages = ExplodingMessages()
+
+    monkeypatch.setattr("twilio.rest.Client", ExplodingClient)
+
+    session_fixture.add(
+        UserTable(
+            id=9202,
+            family_id=1,
+            role="Parent",
+            phone="+19995554321",
+            custody_label="Parent A",
+        )
+    )
+    session_fixture.commit()
+
+    params = {
+        "MessageSid": "SM-send-failure",
+        "From": "+19995554321",
+        "Body": "swap 2026-07-08 to Parent B",
+    }
+    signature = _twilio_signature(
+        auth_token, "http://testserver/api/v1/twilio/sms", params
+    )
+
+    response = client_fixture.post(
+        "/api/v1/twilio/sms",
+        data=params,
+        headers={"X-Twilio-Signature": signature},
+    )
+
+    assert response.status_code == 200
+    drafts = session_fixture.exec(
+        select(OverrideTable).where(OverrideTable.requested_by_user_id == 9202)
     ).all()
     assert len(drafts) == 1
