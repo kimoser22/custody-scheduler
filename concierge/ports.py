@@ -6,6 +6,20 @@ from concierge.phones import normalize_phone
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
 
 
+class RecipientOptedOutError(Exception):
+    """Twilio refused the send because the recipient is on *their* opt-out
+    list (error 21610).
+
+    Translated from the driver error so the gateway that owns the opt-out
+    store can record it, letting our sms_opt_outs table converge on Twilio's
+    without a proactive reconciliation pass.
+    """
+
+    def __init__(self, phone: str) -> None:
+        super().__init__(f"Recipient {phone} has opted out of SMS.")
+        self.phone = phone
+
+
 class OverrideConflictError(Exception):
     """Raised by an OverrideRepository when activating an override would
     violate the one-active-override-per-date constraint (a race with another
@@ -69,10 +83,20 @@ class OptOutAwareSmsGateway:
     def send(self, to: str, body: str) -> None:
         if self.opt_outs.is_opted_out(normalize_phone(to)):
             return
-        self.inner.send(to=to, body=body)
+        self._send_recording_opt_outs(self.inner.send, to, body)
 
     def send_forced(self, to: str, body: str) -> None:
-        self.inner.send(to=to, body=body)
+        # Keyword ACKs bypass our gate by design, but Twilio may still refuse
+        # them — record that rather than letting it escape.
+        self._send_recording_opt_outs(self.inner.send, to, body)
+
+    def _send_recording_opt_outs(self, send, to: str, body: str) -> None:
+        try:
+            send(to=to, body=body)
+        except RecipientOptedOutError:
+            # Twilio's list knew something ours didn't. Catch up so the next
+            # send is short-circuited here instead of rejected again.
+            self.opt_outs.opt_out(to)
 
 
 class IntentParser(Protocol):

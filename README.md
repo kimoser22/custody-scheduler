@@ -154,6 +154,22 @@ TWILIO_FROM_NUMBER=
 
 Without those, SMS bodies are recorded by `EnvTwilioSmsGateway` in-process (tests use fakes). Point Twilio at your tunnel, e.g. `https://<host>/api/v1/twilio/sms`.
 
+**A failed send never fails the inbound handling.** `handle_sms` claims the
+`MessageSid` before doing any work, so a 500 would be unrecoverable — Twilio's
+retry gets dropped as a duplicate and the message is lost. Twilio errors are
+therefore logged at WARNING and swallowed. Check for them with:
+
+```powershell
+fly logs --no-tail | Select-String "sms send"
+```
+
+(`--no-tail` matters: without it `fly logs` follows the stream and never
+returns. On a POSIX shell, `fly logs --no-tail | grep -i "sms send"`.)
+
+The one exception is error **21610** (recipient opted out at Twilio's layer):
+that is recorded in `sms_opt_outs`, so our list converges on Twilio's and later
+sends to that number are short-circuited locally instead of rejected again.
+
 ### Terminal simulator (no Twilio / ngrok)
 
 Walk the double-handshake in your terminal against the real LangGraph + in-memory DB:
