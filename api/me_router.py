@@ -8,10 +8,13 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from api.dependencies import CurrentUser, SessionDep, get_current_user, require_parent_role
+from api.passcodes import hash_passcode, verify_passcode
 from concierge.phones import normalize_phone
 from database.schema import UserTable
 
 me_router = APIRouter(prefix="/api/v1")
+
+_MIN_PASSCODE_LENGTH = 4
 
 
 class MeResponse(BaseModel):
@@ -25,6 +28,15 @@ class MeResponse(BaseModel):
 class MeUpdate(BaseModel):
     phone: str | None = None
     email: str | None = None
+
+
+class PasscodeChangeRequest(BaseModel):
+    current_passcode: str
+    new_passcode: str
+
+
+class PasscodeChangeResponse(BaseModel):
+    ok: bool = True
 
 
 class CalendarFeedRequest(BaseModel):
@@ -144,6 +156,43 @@ def patch_me(
     session.commit()
     session.refresh(user)
     return _to_response(user)
+
+
+@me_router.patch("/me/passcode")
+def change_passcode(
+    body: PasscodeChangeRequest,
+    session: SessionDep,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> PasscodeChangeResponse:
+    """Rotate the signed-in user's login passcode without a DB wipe."""
+    user = _load_user(session, current_user.id)
+    if user.passcode_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No passcode is set; enable login via seed env first.",
+        )
+    if not verify_passcode(body.current_passcode, user.passcode_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current passcode is incorrect.",
+        )
+
+    new_passcode = body.new_passcode.strip()
+    if len(new_passcode) < _MIN_PASSCODE_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"New passcode must be at least {_MIN_PASSCODE_LENGTH} characters.",
+        )
+    if new_passcode == body.current_passcode.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New passcode must differ from the current passcode.",
+        )
+
+    user.passcode_hash = hash_passcode(new_passcode)
+    session.add(user)
+    session.commit()
+    return PasscodeChangeResponse(ok=True)
 
 
 @me_router.post("/me/calendar-feed")

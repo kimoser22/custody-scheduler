@@ -13,11 +13,20 @@ export interface MeUpdate {
   email?: string | null;
 }
 
+export interface PasscodeChange {
+  current_passcode: string;
+  new_passcode: string;
+}
+
 export type FetchMe = () => Promise<MeProfile>;
 
 export type UpdateMe = (
   update: MeUpdate,
 ) => Promise<{ ok: true; data: MeProfile } | { ok: false; status: number; detail?: string }>;
+
+export type ChangePasscode = (
+  change: PasscodeChange,
+) => Promise<{ ok: true } | { ok: false; status: number; detail?: string }>;
 
 function errorDetail(error: unknown, fallback: string): string {
   return typeof error === "object" && error && "detail" in error
@@ -49,4 +58,22 @@ export async function updateMeRequest(
   }
 
   return { ok: true, data: data as MeProfile };
+}
+
+export async function changePasscodeRequest(
+  change: PasscodeChange,
+): Promise<{ ok: true } | { ok: false; status: number; detail?: string }> {
+  const { data, error, response } = await api.PATCH("/api/v1/me/passcode", {
+    body: change,
+  });
+
+  if (!response.ok || !data) {
+    return {
+      ok: false,
+      status: response.status,
+      detail: errorDetail(error, "Unable to change passcode."),
+    };
+  }
+
+  return { ok: true };
 }

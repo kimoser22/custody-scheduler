@@ -8,10 +8,12 @@ import { ContactSettings } from "@/components/ContactSettings";
 import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
+import { PasscodeSettings } from "@/components/PasscodeSettings";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
 import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
 import {
+  changePasscodeRequest,
   fetchMeRequest,
   updateMeRequest,
 } from "@/lib/api/me";
@@ -90,10 +92,14 @@ export default function SchedulePage() {
       <DevAuthBar onAuthChange={handleAuthChange} />
 
       {authToken ? (
-        <div className="mt-4 mb-4">
+        <div className="mt-4 mb-4 space-y-4">
           <CalendarSubscribe
             key={authToken}
             ensureCalendarFeed={ensureCalendarFeedRequest}
+          />
+          <PasscodeSettings
+            key={`passcode-${authToken}`}
+            changePasscode={changePasscodeRequest}
           />
         </div>
       ) : null}
