@@ -21,6 +21,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_api_v1_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Me */
+        patch: operations["patch_me_api_v1_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/me/passcode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change Passcode
+         * @description Rotate the signed-in user's login passcode without a DB wipe.
+         */
+        patch: operations["change_passcode_api_v1_me_passcode_patch"];
+        trace?: never;
+    };
+    "/api/v1/me/calendar-feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint Or Rotate Calendar Feed
+         * @description Mint a subscribe token, or rotate it when body.rotate is true.
+         */
+        post: operations["mint_or_rotate_calendar_feed_api_v1_me_calendar_feed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -47,6 +105,26 @@ export interface paths {
         };
         /** Get Schedule */
         get: operations["get_schedule_api_v1_schedule__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedule/feed.ics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Calendar Feed
+         * @description Subscribeable ICS feed authenticated by opaque calendar_feed_token.
+         */
+        get: operations["get_calendar_feed_api_v1_schedule_feed_ics_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -153,6 +231,21 @@ export interface components {
             /** Body */
             Body: string;
         };
+        /** CalendarFeedRequest */
+        CalendarFeedRequest: {
+            /**
+             * Rotate
+             * @default false
+             */
+            rotate: boolean;
+        };
+        /** CalendarFeedResponse */
+        CalendarFeedResponse: {
+            /** Token */
+            token: string;
+            /** Url */
+            url: string;
+        };
         /** DailyCustodyState */
         DailyCustodyState: {
             /**
@@ -170,6 +263,26 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** MeResponse */
+        MeResponse: {
+            /** Id */
+            id: number;
+            /** Role */
+            role: string;
+            /** Custody Label */
+            custody_label: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Email */
+            email: string | null;
+        };
+        /** MeUpdate */
+        MeUpdate: {
+            /** Phone */
+            phone?: string | null;
+            /** Email */
+            email?: string | null;
         };
         /** OverrideDecisionRequest */
         OverrideDecisionRequest: {
@@ -191,6 +304,21 @@ export interface components {
          * @enum {string}
          */
         ParentRole: "Parent A" | "Parent B";
+        /** PasscodeChangeRequest */
+        PasscodeChangeRequest: {
+            /** Current Passcode */
+            current_passcode: string;
+            /** New Passcode */
+            new_passcode: string;
+        };
+        /** PasscodeChangeResponse */
+        PasscodeChangeResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+        };
         /** ScheduleOverride */
         ScheduleOverride: {
             /** Id */
@@ -215,6 +343,10 @@ export interface components {
             expires_at?: string | null;
             /** Requested By User Id */
             requested_by_user_id?: number | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Requested By Label */
+            requested_by_label?: string | null;
         };
         /** TokenRequest */
         TokenRequest: {
@@ -292,6 +424,142 @@ export interface operations {
             };
         };
     };
+    get_me_api_v1_me_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_me_api_v1_me_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_passcode_api_v1_me_passcode_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasscodeChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasscodeChangeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mint_or_rotate_calendar_feed_api_v1_me_calendar_feed_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CalendarFeedRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_check_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -335,6 +603,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DailyCustodyState"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_calendar_feed_api_v1_schedule_feed_ics_get: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

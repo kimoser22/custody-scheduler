@@ -3,15 +3,25 @@
 import { useState } from "react";
 
 import { CalendarGrid } from "@/components/CalendarGrid";
+import { CalendarSubscribe } from "@/components/CalendarSubscribe";
+import { ContactSettings } from "@/components/ContactSettings";
 import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
+import { PasscodeSettings } from "@/components/PasscodeSettings";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { useSchedule } from "@/hooks/useSchedule";
+import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
+import {
+  changePasscodeRequest,
+  fetchMeRequest,
+  updateMeRequest,
+} from "@/lib/api/me";
 import {
   createOverrideRequest,
   decideOverrideRequest,
   fetchPendingOverridesRequest,
+  sweepExpiredOverridesRequest,
 } from "@/lib/api/overrides";
 import {
   type Session,
@@ -82,6 +92,29 @@ export default function SchedulePage() {
 
       <DevAuthBar onAuthChange={handleAuthChange} />
 
+      {authToken ? (
+        <div className="mt-4 mb-4 space-y-4">
+          <CalendarSubscribe
+            key={authToken}
+            ensureCalendarFeed={ensureCalendarFeedRequest}
+          />
+          <PasscodeSettings
+            key={`passcode-${authToken}`}
+            changePasscode={changePasscodeRequest}
+          />
+        </div>
+      ) : null}
+
+      {canRequestOverride(session) ? (
+        <div className="mt-4 mb-4">
+          <ContactSettings
+            key={authToken ?? "signed-out"}
+            fetchMe={fetchMeRequest}
+            updateMe={updateMeRequest}
+          />
+        </div>
+      ) : null}
+
       <div className="mb-4 flex gap-4 text-sm">
         <span className="rounded border border-blue-200 bg-blue-50 px-2 py-1">
           Parent A
@@ -90,7 +123,7 @@ export default function SchedulePage() {
           Parent B
         </span>
         <span className="rounded border px-2 py-1 ring-2 ring-amber-500">
-          Override
+          Holiday / override
         </span>
       </div>
 
@@ -124,6 +157,7 @@ export default function SchedulePage() {
             key={`${authToken}-${pendingListVersion}`}
             fetchPendingOverrides={fetchPendingOverridesRequest}
             decideOverride={decideOverrideRequest}
+            sweepExpiredOverrides={sweepExpiredOverridesRequest}
             currentUserId={currentUserId}
             onDecided={() => void refetch()}
           />

@@ -2,13 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { DecideOverride, FetchPendingOverrides } from "@/lib/api/schedule";
+import type {
+  DecideOverride,
+  FetchPendingOverrides,
+  SweepExpiredOverrides,
+} from "@/lib/api/schedule";
+import { formatExpiryLabel } from "@/lib/formatExpiry";
 import type { ScheduleOverride } from "@/lib/types";
 
 interface PendingOverridesProps {
   fetchPendingOverrides: FetchPendingOverrides;
   decideOverride: DecideOverride;
   currentUserId: number | null;
+  sweepExpiredOverrides?: SweepExpiredOverrides;
   onDecided?: () => void;
 }
 
@@ -16,11 +22,13 @@ export function PendingOverrides({
   fetchPendingOverrides,
   decideOverride,
   currentUserId,
+  sweepExpiredOverrides,
   onDecided,
 }: PendingOverridesProps) {
   const [requests, setRequests] = useState<ScheduleOverride[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expiredNotice, setExpiredNotice] = useState<string | null>(null);
   const [decisionErrors, setDecisionErrors] = useState<Record<number, string>>({});
   const [pendingDecisionId, setPendingDecisionId] = useState<number | null>(null);
 
@@ -28,6 +36,13 @@ export function PendingOverrides({
     setIsLoading(true);
     setError(null);
     try {
+      if (sweepExpiredOverrides) {
+        try {
+          await sweepExpiredOverrides();
+        } catch {
+          // Sweep is best-effort; pending list still loads.
+        }
+      }
       const result = await fetchPendingOverrides();
       setRequests(result);
     } catch (loadError) {
@@ -39,7 +54,7 @@ export function PendingOverrides({
     } finally {
       setIsLoading(false);
     }
-  }, [fetchPendingOverrides]);
+  }, [fetchPendingOverrides, sweepExpiredOverrides]);
 
   useEffect(() => {
     void refetch();
@@ -52,12 +67,21 @@ export function PendingOverrides({
       delete next[overrideId];
       return next;
     });
+    setExpiredNotice(null);
 
     const result = await decideOverride(overrideId, approve);
 
     setPendingDecisionId(null);
 
     if (!result.ok) {
+      if (result.status === 410) {
+        setRequests((previous) =>
+          previous.filter((request) => request.id !== overrideId),
+        );
+        setExpiredNotice("This request expired.");
+        await refetch();
+        return;
+      }
       setDecisionErrors((previous) => ({
         ...previous,
         [overrideId]: result.detail ?? "Unable to record decision.",
@@ -80,8 +104,14 @@ export function PendingOverrides({
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Pending override requests</h2>
+      {expiredNotice ? (
+        <p className="text-sm text-amber-800">{expiredNotice}</p>
+      ) : null}
       {requests.length === 0 ? (
-        <p className="text-sm text-slate-600">No pending override requests.</p>
+        <p className="text-sm text-slate-600">
+          No pending requests. Expired ones drop off automatically after the
+          approval window.
+        </p>
       ) : (
         <ul className="space-y-2">
           {requests.map((request) => {
@@ -89,21 +119,32 @@ export function PendingOverrides({
               currentUserId != null &&
               request.requested_by_user_id != null &&
               request.requested_by_user_id === currentUserId;
+            const requester =
+              request.requested_by_label?.trim() ||
+              (request.requested_by_user_id != null
+                ? `user ${request.requested_by_user_id}`
+                : null);
 
             return (
               <li key={request.id} className="rounded border p-3 text-sm">
                 <div className="font-medium">
-                  {request.override_date} &mdash; {request.assigned_parent} (
-                  {request.override_type})
+                  {request.end_date && request.end_date !== request.override_date
+                    ? `${request.override_date} to ${request.end_date}`
+                    : request.override_date}{" "}
+                  &mdash; {request.assigned_parent} (
+                  {request.override_type === "Holiday"
+                    ? "Holiday / vacation"
+                    : request.override_type}
+                  )
                 </div>
                 <div className="text-slate-600">{request.description}</div>
-                {request.requested_by_user_id != null ? (
-                  <div className="text-slate-600">
-                    Requested by user {request.requested_by_user_id}
-                  </div>
+                {requester ? (
+                  <div className="text-slate-600">Requested by {requester}</div>
                 ) : null}
                 {request.expires_at ? (
-                  <div className="text-slate-600">Expires {request.expires_at}</div>
+                  <div className="text-slate-600">
+                    {formatExpiryLabel(request.expires_at)}
+                  </div>
                 ) : null}
                 <div className="mt-2 flex items-center gap-2">
                   {isOwnRequest ? (

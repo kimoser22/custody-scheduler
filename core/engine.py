@@ -7,6 +7,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
+from core.ranges import override_covers
 
 _SEGMENT_LENGTHS = (2, 2, 3, 2, 2, 3)
 
@@ -57,7 +58,7 @@ def calculate_schedule(
             for override in overrides
             if override.is_active
             and override.status == OverrideStatus.APPROVED
-            and override.override_date == current
+            and override_covers(override, current)
         ]
         override = matching_overrides[-1] if matching_overrides else None
 

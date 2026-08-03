@@ -44,7 +44,28 @@ describe("DayCell", () => {
     );
 
     expect(screen.getByRole("gridcell")).toHaveAttribute("data-overridden", "true");
-    expect(screen.getByText("Override")).toBeInTheDocument();
+    expect(screen.getByText("Holiday")).toBeInTheDocument();
+  });
+
+  it("prefers a short description on the override badge", () => {
+    render(
+      <DayCell
+        day={{
+          ...baseDay,
+          is_overridden: true,
+          final_parent: PARENT_B,
+          override_details: {
+            override_date: "2026-01-05",
+            assigned_parent: PARENT_B,
+            override_type: "Holiday",
+            description: "Spring break",
+            is_active: true,
+            status: "Approved",
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Spring break")).toBeInTheDocument();
   });
 
   it("calls onSelect when clicked", async () => {

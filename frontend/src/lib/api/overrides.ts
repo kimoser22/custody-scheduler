@@ -1,5 +1,10 @@
 import { api } from "@/lib/api/client";
-import type { CreateOverride, DecideOverride, FetchPendingOverrides } from "@/lib/api/schedule";
+import type {
+  CreateOverride,
+  DecideOverride,
+  FetchPendingOverrides,
+  SweepExpiredOverrides,
+} from "@/lib/api/schedule";
 import type { ScheduleOverride } from "@/lib/types";
 
 function errorDetail(error: unknown, fallback: string): string {
@@ -26,6 +31,11 @@ export const createOverrideRequest: CreateOverride = async (override) => {
   }
 
   return { ok: true, data: data as ScheduleOverride };
+};
+
+export const sweepExpiredOverridesRequest: SweepExpiredOverrides = async () => {
+  // Parents only on the API; ignore 403 for viewers and other failures.
+  await api.POST("/api/v1/schedule/overrides/sweep-expired");
 };
 
 export const fetchPendingOverridesRequest: FetchPendingOverrides = async () => {

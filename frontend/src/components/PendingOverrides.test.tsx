@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { PendingOverrides } from "@/components/PendingOverrides";
-import type { DecideOverride, FetchPendingOverrides } from "@/lib/api/schedule";
+import type {
+  DecideOverride,
+  FetchPendingOverrides,
+  SweepExpiredOverrides,
+} from "@/lib/api/schedule";
 import type { ScheduleOverride } from "@/lib/types";
 
 const PENDING_OVERRIDE: ScheduleOverride = {
@@ -15,6 +19,7 @@ const PENDING_OVERRIDE: ScheduleOverride = {
   is_active: false,
   status: "Pending",
   requested_by_user_id: 101,
+  requested_by_label: "Parent A",
   expires_at: "2026-01-16T12:00:00",
 };
 
@@ -35,10 +40,29 @@ describe("PendingOverrides", () => {
     await waitFor(() => {
       expect(screen.getByText(/2026-01-15/)).toBeInTheDocument();
     });
+    expect(screen.getByText(/Holiday \/ vacation/)).toBeInTheDocument();
     expect(screen.getByText(/Take the kids to grandma's/)).toBeInTheDocument();
-    expect(screen.getByText(/Parent B/)).toBeInTheDocument();
-    expect(screen.getByText(/Requested by user 101/)).toBeInTheDocument();
-    expect(screen.getByText(/Expires 2026-01-16T12:00:00/)).toBeInTheDocument();
+    expect(screen.getByText(/Requested by Parent A/)).toBeInTheDocument();
+    expect(screen.getByText(/UTC/)).toBeInTheDocument();
+  });
+
+  it("calls sweep-expired before loading pending requests", async () => {
+    const sweepExpiredOverrides = vi.fn<SweepExpiredOverrides>(async () => undefined);
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => []);
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        sweepExpiredOverrides={sweepExpiredOverrides}
+        currentUserId={102}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(sweepExpiredOverrides).toHaveBeenCalled();
+    });
+    expect(fetchPendingOverrides).toHaveBeenCalled();
   });
 
   it("hides Approve and Reject on your own requests", async () => {
@@ -93,7 +117,9 @@ describe("PendingOverrides", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("No pending override requests.")).toBeInTheDocument();
+      expect(
+        screen.getByText(/No pending requests\. Expired ones drop off/),
+      ).toBeInTheDocument();
     });
   });
 
@@ -124,7 +150,9 @@ describe("PendingOverrides", () => {
 
     expect(decideOverride).toHaveBeenCalledWith(7, true);
     await waitFor(() => {
-      expect(screen.getByText("No pending override requests.")).toBeInTheDocument();
+      expect(
+        screen.getByText(/No pending requests\. Expired ones drop off/),
+      ).toBeInTheDocument();
     });
   });
 
@@ -158,6 +186,38 @@ describe("PendingOverrides", () => {
         screen.getByText("Override request has already been approved."),
       ).toBeInTheDocument();
     });
+  });
+
+  it("removes the row and shows a notice when the request has expired", async () => {
+    const user = userEvent.setup();
+    const fetchPendingOverrides: FetchPendingOverrides = vi
+      .fn()
+      .mockResolvedValueOnce([PENDING_OVERRIDE])
+      .mockResolvedValueOnce([]);
+    const decideOverride = vi.fn<DecideOverride>(async () => ({
+      ok: false,
+      status: 410,
+      detail: "Override request has expired.",
+    }));
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={decideOverride}
+        currentUserId={102}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("This request expired.")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   });
 
   it("rejects a request via the Reject button", async () => {

@@ -23,6 +23,10 @@ class UserTable(SQLModel, table=True):
     # Nullable so existing rows stay valid; ensure_user_email_column() adds the
     # column in place on databases created before it existed.
     email: str | None = None
+    # Opaque subscribe token for GET /schedule/feed.ics?token=… Unique when set.
+    calendar_feed_token: str | None = Field(
+        default=None, unique=True, index=True
+    )
 
 
 class BaselineTable(SQLModel, table=True):
@@ -49,6 +53,8 @@ class OverrideTable(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     family_id: int = Field(foreign_key="family_links.id")
     override_date: date
+    # Inclusive end; NULL means single-day (same as override_date).
+    end_date: date | None = None
     assigned_parent: str
     override_type: str
     description: str

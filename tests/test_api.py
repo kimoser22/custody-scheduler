@@ -341,6 +341,7 @@ def test_pending_overrides_listing_returns_pending_for_family(
     assert len(body) == 1
     assert body[0]["status"] == "Pending"
     assert body[0]["requested_by_user_id"] == mock_parent.id
+    assert body[0]["requested_by_label"] == mock_parent.custody_label
 
 
 def test_pending_overrides_listing_excludes_decided_requests(
@@ -409,6 +410,188 @@ def test_minted_viewer_token_cannot_create_override(
         headers=_auth_header(user_id=2, role="Viewer"),
     )
     assert response.status_code == 403
+
+
+def test_parent_can_request_date_range_override(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    payload = {
+        **OVERRIDE_PAYLOAD,
+        "override_date": "2026-01-15",
+        "end_date": "2026-01-17",
+        "description": "Long weekend",
+    }
+
+    response = client_fixture.post("/api/v1/schedule/overrides", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "Pending"
+    assert body["is_active"] is False
+    assert body["override_date"] == "2026-01-15"
+    assert body["end_date"] == "2026-01-17"
+
+
+def test_holiday_request_gets_seven_day_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.HOLIDAY.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-01",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(days=7) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(days=7) + timedelta(seconds=5)
+
+
+def test_multi_day_mutual_swap_gets_seven_day_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.MUTUAL_SWAP.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-03",
+            "description": "Weekend swap",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(days=7) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(days=7) + timedelta(seconds=5)
+
+
+def test_single_day_mutual_swap_keeps_twenty_four_hour_ttl(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    body = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_type": OverrideType.MUTUAL_SWAP.value,
+            "override_date": "2026-03-01",
+            "end_date": "2026-03-01",
+            "description": "One day",
+        },
+    ).json()
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert before + timedelta(hours=24) - timedelta(seconds=5) <= expires
+    assert expires <= after + timedelta(hours=24) + timedelta(seconds=5)
+
+
+def test_end_date_before_start_is_rejected(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    payload = {
+        **OVERRIDE_PAYLOAD,
+        "override_date": "2026-01-17",
+        "end_date": "2026-01-15",
+    }
+
+    response = client_fixture.post("/api/v1/schedule/overrides", json=payload)
+
+    assert response.status_code == 400
+    assert "end_date" in response.json()["detail"]
+
+
+def test_approved_range_override_appears_on_each_day(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+    mock_other_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    payload = {
+        **OVERRIDE_PAYLOAD,
+        "override_date": "2026-01-15",
+        "end_date": "2026-01-17",
+        "assigned_parent": ParentRole.PARENT_B.value,
+        "description": "Range approved",
+    }
+    create = client_fixture.post("/api/v1/schedule/overrides", json=payload)
+    override_id = create.json()["id"]
+
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_other_parent)
+    decide = _decide(client_fixture, override_id, approve=True)
+    assert decide.status_code == 200
+
+    schedule = client_fixture.get(
+        "/api/v1/schedule/?start_date=2026-01-14&end_date=2026-01-18"
+    ).json()
+    by_date = {day["current_date"]: day for day in schedule}
+
+    assert by_date["2026-01-14"]["is_overridden"] is False
+    for day in ("2026-01-15", "2026-01-16", "2026-01-17"):
+        assert by_date[day]["is_overridden"] is True
+        assert by_date[day]["final_parent"] == ParentRole.PARENT_B.value
+        assert by_date[day]["override_details"]["end_date"] == "2026-01-17"
+    assert by_date["2026-01-18"]["is_overridden"] is False
+
+
+def test_approving_overlapping_range_supersedes_previous(
+    client_fixture: TestClient,
+    mock_parent: UserTable,
+    mock_other_parent: UserTable,
+) -> None:
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    first = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_date": "2026-01-15",
+            "end_date": "2026-01-17",
+            "assigned_parent": ParentRole.PARENT_A.value,
+            "description": "First range",
+        },
+    ).json()["id"]
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_other_parent)
+    _decide(client_fixture, first, approve=True)
+
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_parent)
+    second = client_fixture.post(
+        "/api/v1/schedule/overrides",
+        json={
+            **OVERRIDE_PAYLOAD,
+            "override_date": "2026-01-16",
+            "end_date": "2026-01-18",
+            "assigned_parent": ParentRole.PARENT_B.value,
+            "description": "Overlapping replacement",
+        },
+    ).json()["id"]
+    app.dependency_overrides[get_current_user] = _override_current_user(mock_other_parent)
+    assert _decide(client_fixture, second, approve=True).status_code == 200
+
+    schedule = client_fixture.get(
+        "/api/v1/schedule/?start_date=2026-01-15&end_date=2026-01-18"
+    ).json()
+    by_date = {day["current_date"]: day for day in schedule}
+
+    # First range deactivated entirely once the overlapping second is approved.
+    assert by_date["2026-01-15"]["is_overridden"] is False
+    assert by_date["2026-01-16"]["final_parent"] == ParentRole.PARENT_B.value
+    assert by_date["2026-01-17"]["final_parent"] == ParentRole.PARENT_B.value
+    assert by_date["2026-01-18"]["final_parent"] == ParentRole.PARENT_B.value
 
 
 def test_distinct_parent_tokens_have_stable_but_different_identities(

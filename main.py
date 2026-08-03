@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlmodel import Session, SQLModel, select  # noqa: E402
 
 from api.auth_router import auth_router  # noqa: E402
+from api.me_router import me_router  # noqa: E402
 from api.passcodes import hash_passcode  # noqa: E402
 from concierge.factory import describe_handshake_durability  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
@@ -58,6 +59,39 @@ def ensure_user_email_column(engine_to_patch) -> None:
             # No users table yet (create_all handles it), or already migrated.
             return
         connection.exec_driver_sql("ALTER TABLE users ADD COLUMN email VARCHAR")
+        connection.commit()
+
+
+def ensure_override_end_date_column(engine_to_patch) -> None:
+    """Add overrides.end_date in place on databases created before ranges existed."""
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(overrides)")
+        }
+        if not columns or "end_date" in columns:
+            return
+        connection.exec_driver_sql("ALTER TABLE overrides ADD COLUMN end_date DATE")
+        connection.commit()
+
+
+def ensure_calendar_feed_token_column(engine_to_patch) -> None:
+    """Add users.calendar_feed_token on databases created before ICS feeds."""
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(users)")
+        }
+        if not columns or "calendar_feed_token" in columns:
+            return
+        connection.exec_driver_sql(
+            "ALTER TABLE users ADD COLUMN calendar_feed_token VARCHAR"
+        )
+        connection.commit()
+        # Unique index for token lookup; SQLite allows multiple NULLs.
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_calendar_feed_token "
+            "ON users (calendar_feed_token)"
+        )
         connection.commit()
 
 
@@ -144,6 +178,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Must run after create_all (which handles fresh databases) and before any
     # query touches users.email on a volume that predates the column.
     ensure_user_email_column(engine)
+    ensure_override_end_date_column(engine)
+    ensure_calendar_feed_token_column(engine)
     with Session(engine) as session:
         try:
             ensure_default_seed_data(session)
@@ -178,6 +214,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(me_router)
 app.include_router(router)
 app.include_router(schedule_router)
 app.include_router(twilio_router)

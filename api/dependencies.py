@@ -7,7 +7,8 @@ from sqlmodel import Session
 
 from api.auth_tokens import TokenError, verify_token
 from api.email_notifier import SmtpEmailNotifier
-from concierge.ports import AuditRepository
+from concierge.adapters import EnvTwilioSmsGateway
+from concierge.ports import AuditRepository, SmsGateway
 from concierge.repos import SqlAuditRepository
 from core.notifications import Notifier
 from database.connection import get_session
@@ -21,6 +22,14 @@ def get_notifier() -> Notifier:
 
 
 NotifierDep = Annotated[Notifier, Depends(get_notifier)]
+
+
+def get_sms_gateway() -> SmsGateway:
+    """Twilio when configured; records locally otherwise. Override in tests."""
+    return EnvTwilioSmsGateway()
+
+
+SmsDep = Annotated[SmsGateway, Depends(get_sms_gateway)]
 
 
 def get_audit(session: SessionDep) -> AuditRepository:

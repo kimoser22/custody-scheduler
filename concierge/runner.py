@@ -14,8 +14,10 @@ from concierge.sms_copy import (
     HELP_REPLY,
     OPT_IN_REPLY,
     OPT_OUT_REPLY,
+    REQUEST_WITHDRAWN_SMS,
     STILL_OPTED_OUT_REPLY,
 )
+from core.models import OverrideStatus
 
 _STOP_KEYWORDS = frozenset(
     {"stop", "stopall", "unsubscribe", "cancel", "end", "quit"}
@@ -66,6 +68,11 @@ class InMemoryThreadRegistry:
     def clear(self, phone: str) -> None:
         self.by_phone.pop(phone, None)
 
+    def clear_by_thread(self, thread_id: str) -> None:
+        for phone, mapped in list(self.by_phone.items()):
+            if mapped == thread_id:
+                self.by_phone.pop(phone, None)
+
 
 @dataclass
 class LangGraphConciergeRunner:
@@ -76,6 +83,61 @@ class LangGraphConciergeRunner:
 
     def __post_init__(self) -> None:
         self._graph = build_concierge_graph(self.deps, checkpointer=self.checkpointer)
+
+    def _withdraw_open_proposals(self, from_phone: str) -> None:
+        """Reject the sender's open Draft/Pending work and tear down SMS pause."""
+        sender = self.deps.resolver.resolve(from_phone)
+        counterparty_phone: str | None = None
+        if sender is not None:
+            counterparty = self.deps.counterparty_by_family.get(sender.family_id)
+            if counterparty is not None:
+                _, counterparty_phone, _ = counterparty
+
+        thread_ids: set[str] = set()
+        own_thread = self.registry.get(from_phone)
+        if own_thread:
+            thread_ids.add(own_thread)
+        if counterparty_phone:
+            cp_thread = self.registry.get(counterparty_phone)
+            if cp_thread:
+                thread_ids.add(cp_thread)
+        for thread_id in thread_ids:
+            self.registry.clear_by_thread(thread_id)
+        self.registry.clear(from_phone)
+        if counterparty_phone:
+            self.registry.clear(counterparty_phone)
+
+        if sender is None:
+            return
+
+        open_overrides = self.deps.overrides.list_open_by_requester(
+            sender.user_id, now=self.deps.now
+        )
+        if not open_overrides:
+            return
+
+        for override in open_overrides:
+            assert override.id is not None
+            self.deps.overrides.set_status(
+                override.id,
+                OverrideStatus.REJECTED,
+                is_active=False,
+                decided_by_user_id=sender.user_id,
+                decided_at=self.deps.now,
+            )
+            self.deps.audit.append(
+                family_id=sender.family_id,
+                actor_role=sender.role,
+                action_type="override_withdrawn_opt_out",
+                description=(
+                    f"Override {override.id} withdrawn when requester opted out of SMS"
+                ),
+                previous_state_id=override.id,
+                timestamp=self.deps.now,
+            )
+
+        if counterparty_phone:
+            self.deps.sms.send(to=counterparty_phone, body=REQUEST_WITHDRAWN_SMS)
 
     def handle_sms(
         self, *, message_sid: str, from_phone: str, body: str
@@ -95,7 +157,7 @@ class LangGraphConciergeRunner:
 
         keyword = classify_keyword(body)
         if keyword == "stop":
-            self.registry.clear(from_phone)
+            self._withdraw_open_proposals(from_phone)
             self.deps.opt_outs.opt_out(from_phone)
             _send_keyword_reply(self.deps, from_phone, OPT_OUT_REPLY)
             return {"status": "ok", "reason": "opt_out"}

@@ -2,7 +2,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -11,6 +11,7 @@ from api.dependencies import (
     CurrentUser,
     NotifierDep,
     SessionDep,
+    SmsDep,
     get_current_user,
     require_parent_role,
 )
@@ -18,9 +19,13 @@ from core.notifications import (
     Notifier,
     override_decided_email,
     override_requested_email,
+    override_requested_sms,
 )
+from concierge.ports import SmsGateway
+from concierge.repos import SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
+from core.ics import build_custody_ics
 from core.models import (
     BaselineSchedule,
     DailyCustodyState,
@@ -30,6 +35,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
+from core.ranges import ranges_overlap
 from database.schema import BaselineTable, OverrideTable, UserTable
 
 _logger = logging.getLogger(__name__)
@@ -39,11 +45,29 @@ schedule_router = APIRouter(prefix="/api/v1/schedule")
 
 DEFAULT_FAMILY_ID = 1
 OVERRIDE_REQUEST_TTL = timedelta(hours=24)
+PLANNED_OVERRIDE_TTL = timedelta(days=7)
+FEED_PAST_DAYS = 30
+FEED_FUTURE_DAYS = 180
 
 DEFAULT_BASELINE = BaselineSchedule(
     epoch_start_date=date(2026, 1, 5),
     starting_parent=ParentRole.PARENT_A,
 )
+
+
+def _request_ttl(override: ScheduleOverride) -> timedelta:
+    """Holiday and multi-day blocks get a week; one-day swaps stay 24h."""
+    end = override.end_date if override.end_date is not None else override.override_date
+    multi_day = end > override.override_date
+    if override.override_type == OverrideType.HOLIDAY or multi_day:
+        return PLANNED_OVERRIDE_TTL
+    return OVERRIDE_REQUEST_TTL
+
+
+def _date_span_label(start: date, end: date | None) -> str:
+    if end is None or end == start:
+        return str(start)
+    return f"{start} to {end}"
 
 
 def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
@@ -58,10 +82,15 @@ def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
     )
 
 
-def _to_domain(row: OverrideTable) -> ScheduleOverride:
+def _to_domain(
+    row: OverrideTable,
+    *,
+    requested_by_label: str | None = None,
+) -> ScheduleOverride:
     return ScheduleOverride(
         id=row.id,
         override_date=row.override_date,
+        end_date=row.end_date,
         assigned_parent=ParentRole(row.assigned_parent),
         override_type=OverrideType(row.override_type),
         description=row.description,
@@ -69,6 +98,7 @@ def _to_domain(row: OverrideTable) -> ScheduleOverride:
         status=OverrideStatus(row.status),
         expires_at=row.expires_at,
         requested_by_user_id=row.requested_by_user_id,
+        requested_by_label=requested_by_label,
     )
 
 
@@ -120,6 +150,25 @@ def _queue_email(
     background_tasks.add_task(_send_safely, notifier, to, subject, body)
 
 
+def _send_sms_safely(sms: SmsGateway, to: str, body: str) -> None:
+    try:
+        sms.send(to=to, body=body)
+    except Exception:  # noqa: BLE001 — deliberately last-resort
+        _logger.warning("SMS to %s failed", to, exc_info=True)
+
+
+def _queue_sms(
+    background_tasks: BackgroundTasks,
+    sms: SmsGateway,
+    *,
+    to: str | None,
+    body: str,
+) -> None:
+    if not to:
+        return
+    background_tasks.add_task(_send_sms_safely, sms, to, body)
+
+
 def _load_overrides(session: Session, family_id: int) -> list[ScheduleOverride]:
     rows = session.exec(
         select(OverrideTable).where(
@@ -152,12 +201,52 @@ def get_schedule(
     )
 
 
+@schedule_router.get("/feed.ics")
+def get_calendar_feed(
+    token: str,
+    session: SessionDep,
+) -> Response:
+    """Subscribeable ICS feed authenticated by opaque calendar_feed_token."""
+    if not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing calendar feed token.",
+        )
+    user = session.exec(
+        select(UserTable).where(UserTable.calendar_feed_token == token)
+    ).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid calendar feed token.",
+        )
+
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=FEED_PAST_DAYS)
+    end_date = today + timedelta(days=FEED_FUTURE_DAYS)
+    days = calculate_schedule(
+        baseline=_load_baseline(session, user.family_id),
+        overrides=_load_overrides(session, user.family_id),
+        start_date=start_date,
+        end_date=end_date,
+    )
+    body = build_custody_ics(days=days, family_id=user.family_id)
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'inline; filename="custody.ics"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
 @schedule_router.get("/overrides/pending")
 def list_pending_overrides(
     session: SessionDep,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> list[ScheduleOverride]:
-    # Exclude requests whose 24h window has closed. Without this an expired
+    # Exclude requests whose approval window has closed. Without this an expired
     # request still shows as "waiting for the other parent" and the approve
     # button 410s. A read endpoint does not write, so flipping the stored status
     # stays with the decision path and the sweep endpoint below.
@@ -169,7 +258,29 @@ def list_pending_overrides(
             OverrideTable.expires_at > now,
         )
     ).all()
-    return [_to_domain(row) for row in rows]
+    labels: dict[int, str] = {}
+    requester_ids = {
+        row.requested_by_user_id
+        for row in rows
+        if row.requested_by_user_id is not None
+    }
+    if requester_ids:
+        for user in session.exec(
+            select(UserTable).where(UserTable.id.in_(requester_ids))
+        ).all():
+            assert user.id is not None
+            labels[user.id] = user.custody_label or f"user {user.id}"
+    return [
+        _to_domain(
+            row,
+            requested_by_label=(
+                labels.get(row.requested_by_user_id)
+                if row.requested_by_user_id is not None
+                else None
+            ),
+        )
+        for row in rows
+    ]
 
 
 @schedule_router.post("/overrides")
@@ -178,38 +289,49 @@ def create_override(
     background_tasks: BackgroundTasks,
     session: SessionDep,
     notifier: NotifierDep,
+    sms: SmsDep,
     audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
+    if override.end_date is not None and override.end_date < override.override_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_date must be on or after override_date.",
+        )
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     row = OverrideTable(
         family_id=current_user.family_id,
         override_date=override.override_date,
+        end_date=override.end_date,
         assigned_parent=override.assigned_parent.value,
         override_type=override.override_type.value,
         description=override.description,
         is_active=False,
         status=OverrideStatus.PENDING.value,
         requested_by_user_id=current_user.id,
-        expires_at=now + OVERRIDE_REQUEST_TTL,
+        expires_at=now + _request_ttl(override),
     )
     session.add(row)
     session.commit()
     session.refresh(row)
 
+    date_label = _date_span_label(row.override_date, row.end_date)
     audit.append(
         family_id=current_user.family_id,
         actor_role=current_user.role,
         action_type="override_requested",
-        description=f"Override {row.id} requested for {row.override_date}",
+        description=f"Override {row.id} requested for {date_label}",
         previous_state_id=row.id,
         timestamp=now,
     )
 
     counterparty = _other_parent(session, current_user.family_id, current_user.id)
+    requester_label = _label(_user(session, current_user.id), current_user.role)
     subject, body = override_requested_email(
-        requester_label=_label(_user(session, current_user.id), current_user.role),
+        requester_label=requester_label,
         override_date=row.override_date,
+        end_date=row.end_date,
         override_type=row.override_type,
         description=row.description,
         expires_at=row.expires_at,
@@ -220,6 +342,21 @@ def create_override(
         to=counterparty.email if counterparty else None,
         subject=subject,
         body=body,
+    )
+
+    sms_to: str | None = None
+    if counterparty and counterparty.phone:
+        if not SqlOptOutStore(session).is_opted_out(counterparty.phone):
+            sms_to = counterparty.phone
+    _queue_sms(
+        background_tasks,
+        sms,
+        to=sms_to,
+        body=override_requested_sms(
+            requester_label=requester_label,
+            override_date=row.override_date,
+            end_date=row.end_date,
+        ),
     )
     return _to_domain(row)
 
@@ -277,17 +414,22 @@ def decide_override_request(
     row.decided_at = now
 
     if result.new_status == OverrideStatus.APPROVED:
+        new_start = row.override_date
+        new_end = row.end_date if row.end_date is not None else row.override_date
         existing_active = session.exec(
             select(OverrideTable).where(
                 OverrideTable.family_id == current_user.family_id,
-                OverrideTable.override_date == row.override_date,
                 OverrideTable.is_active.is_(True),
                 OverrideTable.id != row.id,
             )
         ).all()
         for other in existing_active:
-            other.is_active = False
-            session.add(other)
+            other_end = (
+                other.end_date if other.end_date is not None else other.override_date
+            )
+            if ranges_overlap(new_start, new_end, other.override_date, other_end):
+                other.is_active = False
+                session.add(other)
         row.is_active = True
 
     session.add(row)
@@ -303,11 +445,12 @@ def decide_override_request(
     session.refresh(row)
 
     approved = result.new_status == OverrideStatus.APPROVED
+    date_label = _date_span_label(row.override_date, row.end_date)
     audit.append(
         family_id=current_user.family_id,
         actor_role=current_user.role,
         action_type="override_approved" if approved else "override_rejected",
-        description=f"Override {row.id} {row.status.lower()} for {row.override_date}",
+        description=f"Override {row.id} {row.status.lower()} for {date_label}",
         previous_state_id=row.id,
         timestamp=now,
     )
@@ -316,6 +459,7 @@ def decide_override_request(
     subject, body = override_decided_email(
         decider_label=_label(_user(session, current_user.id), current_user.role),
         override_date=row.override_date,
+        end_date=row.end_date,
         approved=approved,
     )
     _queue_email(

@@ -1,9 +1,10 @@
 from datetime import date
 from core.models import (
-    BaselineSchedule, 
-    ScheduleOverride, 
-    ParentRole, 
-    OverrideType
+    BaselineSchedule,
+    ScheduleOverride,
+    ParentRole,
+    OverrideType,
+    OverrideStatus,
 )
 from core.engine import calculate_schedule
 
@@ -127,3 +128,65 @@ def test_calculate_schedule_long_horizon_stability():
     result = calculate_schedule(baseline, [], target_date, target_date)
 
     assert result[0].final_parent == ParentRole.PARENT_B
+
+
+def test_calculate_schedule_applies_date_range_override():
+    """One Approved+active row covering Jan 6–8 patches every day in the range."""
+    baseline = BaselineSchedule(
+        epoch_start_date=date(2026, 1, 5),
+        starting_parent=ParentRole.PARENT_A,
+    )
+    range_patch = ScheduleOverride(
+        override_date=date(2026, 1, 6),
+        end_date=date(2026, 1, 8),
+        assigned_parent=ParentRole.PARENT_B,
+        override_type=OverrideType.HOLIDAY,
+        description="Long weekend",
+        is_active=True,
+        status=OverrideStatus.APPROVED,
+    )
+
+    result = calculate_schedule(
+        baseline, [range_patch], date(2026, 1, 5), date(2026, 1, 9)
+    )
+
+    assert result[0].current_date == date(2026, 1, 5)
+    assert result[0].is_overridden is False
+    assert result[0].final_parent == ParentRole.PARENT_A
+
+    for day in result[1:4]:
+        assert day.is_overridden is True
+        assert day.final_parent == ParentRole.PARENT_B
+        assert day.override_details == range_patch
+
+    assert result[1].current_date == date(2026, 1, 6)
+    assert result[2].current_date == date(2026, 1, 7)
+    assert result[3].current_date == date(2026, 1, 8)
+
+    assert result[4].current_date == date(2026, 1, 9)
+    assert result[4].is_overridden is False
+
+
+def test_single_day_when_end_date_omitted():
+    """end_date=None means a single-day patch on override_date only."""
+    baseline = BaselineSchedule(
+        epoch_start_date=date(2026, 1, 5),
+        starting_parent=ParentRole.PARENT_A,
+    )
+    single = ScheduleOverride(
+        override_date=date(2026, 1, 6),
+        end_date=None,
+        assigned_parent=ParentRole.PARENT_B,
+        override_type=OverrideType.HOLIDAY,
+        description="One day",
+        is_active=True,
+    )
+
+    result = calculate_schedule(
+        baseline, [single], date(2026, 1, 5), date(2026, 1, 7)
+    )
+
+    assert result[0].is_overridden is False
+    assert result[1].is_overridden is True
+    assert result[1].final_parent == ParentRole.PARENT_B
+    assert result[2].is_overridden is False

@@ -20,8 +20,9 @@ $env:SEED_VIEWER_PASSCODE = "look"
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-(Or put these in `.env` — see `.env.example`. Passcodes only seed on a fresh
-DB; delete `custody.db` to re-seed.)
+(Or put these in `.env` — see `.env.example`. Seed passcodes only apply on
+insert or NULL back-fill; to change an existing login use **Passcode settings**
+on the schedule page, or delete `custody.db` for a full local re-seed.)
 
 ### Frontend (terminal 2)
 
@@ -240,7 +241,7 @@ Notes:
 - **Run exactly one machine / one uvicorn process.** This is how the app is currently configured — `fly.toml` (`min_machines_running = 1`, `auto_stop_machines = 'off'`) plus the Dockerfile `CMD` (a single uvicorn process, no `--workers`). Note that `min_machines_running` is a floor, not a ceiling: nothing prevents `fly scale count 2`, so this is a rule you keep, not one Fly keeps for you. Two independent reasons:
   - **SQLite volume — data integrity, applies now.** The `sqlite_data` volume attaches to exactly one machine at a time. A second machine does not share the database; it gets its own empty volume, producing two silently diverging copies of the calendar. This holds regardless of whether SMS is live.
   - **Single writer to the checkpoint — applies once SMS is live.** In-flight handshakes are now durable: the LangGraph checkpoint and the phone→thread registry are both written to `custody.db`, so a restart or deploy resumes a paused conversation instead of dropping it. That state lives on the volume, though, so it inherits the same one-machine limit as everything else there.
-- **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Be deliberate with the `fly ssh console -C "rm -f /data/custody.db"` step in the re-seed runbook above — on Fly that permanently deletes real family data. It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly.
+- **A Fly volume is not a backup.** It survives deploys; it does not survive host loss or an accidental delete. Fly takes automatic volume snapshots, but treat those as a convenience, not a recovery plan for real custody records. Deleting `/data/custody.db` permanently destroys family data — never use that to rotate a passcode (use **Passcode settings** instead). It is a different mechanism from `ALLOW_SQLITE_SCHEMA_RESET`, which is local-only drift recovery and must never be set on Fly.
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
 - The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
 - `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
@@ -254,6 +255,12 @@ rows when they are first created. Seeding **reconciles per-user on boot**
 **back-fills a NULL passcode** from its secret when that secret is now set — but
 it **never overwrites a passcode that is already set**.
 
+**Phone and email** follow the same rule for email (`SEED_PARENT_*_EMAIL` only
+fills a NULL address) and phones are **insert-only** at seed time. After launch,
+parents change phone/email in the schedule page **Contact settings** panel
+(`GET`/`PATCH /api/v1/me`) — not by rotating seed secrets. A non-NULL contact
+value in the DB is never overwritten on boot.
+
 Consequences:
 
 - **Enabling login for the first time** (or after adding a secret that wasn't set
@@ -265,15 +272,11 @@ Consequences:
   fly deploy   # or: fly apps restart custody-scheduler-api
   ```
 
-- **Changing an already-set passcode** requires a full re-seed, because the stored
-  hash is never overwritten. Reset the volume's DB and let the fresh seed re-hash
-  (destroys existing overrides — fine pre-launch):
-
-  ```powershell
-  fly secrets set SEED_PARENT_A_PASSCODE=<new-known-value>   # + others as needed
-  fly ssh console -C "rm -f /data/custody.db"
-  fly apps restart custody-scheduler-api
-  ```
+- **Changing an already-set passcode** is self-service: sign in on the schedule
+  page, open **Passcode settings**, and submit the current passcode plus a new
+  one (`PATCH /api/v1/me/passcode`). Seed secrets are not re-applied to existing
+  hashes, so a Fly secret that still holds an old value is harmless after a UI
+  change. Do **not** wipe `/data/custody.db` just to rotate a passcode.
 
 - **Verify** a passcode works (use the value you set; never commit real passcodes):
 
@@ -283,11 +286,13 @@ Consequences:
     -d '{"user_id": 101, "passcode": "<value>"}'   # -> access_token on success
   ```
 
-  A `401` means the seeded user has no matching hash — re-check the secret, then
-  re-seed. (In PowerShell use `curl.exe`, not the `curl` alias.)
+  A `401` means the user has no matching hash — re-check the value you typed, or
+  enable login via seed if the hash is still NULL. (In PowerShell use `curl.exe`,
+  not the `curl` alias.)
 
 Both grandparents share the single **Viewer** login (`SEED_VIEWER_PASSCODE`);
-viewers are read-only, so no separate identity is needed.
+viewers are read-only, so no separate identity is needed. Viewer can also change
+that shared passcode from **Passcode settings** after signing in.
 
 ## Deploy frontend to Vercel
 
