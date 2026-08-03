@@ -245,7 +245,7 @@ Notes:
 - Do **not** set `ALLOW_SQLITE_SCHEMA_RESET` on Fly — that flag is for local SQLite drift recovery only.
 - The Twilio webhook **fails closed**: with no `TWILIO_AUTH_TOKEN` it rejects (403) unless `TWILIO_ALLOW_UNVERIFIED=1` is set. Set the real `TWILIO_AUTH_TOKEN` secret on Fly; do **not** set `TWILIO_ALLOW_UNVERIFIED` there — it's for local dev / the simulator only.
 - `DATABASE_URL` is set in `fly.toml` to `sqlite:////data/custody.db` on the mounted volume.
-- `ANTHROPIC_API_KEY` is **intentionally not set on Fly** while A2P 10DLC review is pending — the LLM intent-parser fallback is phase 2, alongside live carrier SMS. Parsing is env-gated, so with the secret unset the API runs the deterministic parser only (no LLM calls, no cost, no code change). Before re-adding it, set a spend limit on a dedicated Anthropic Console workspace and scope the key to that workspace, so a runaway can't reach the main balance.
+- `ANTHROPIC_API_KEY` is optional on Fly. When unset, the API uses the deterministic heuristic parser only (no LLM calls, no cost). When set, ambiguous SMS fall through to Claude (`LLMIntentParser`) behind the same fail-safe contract — clarification SMS, never a guessed draft. Set a spend limit on a dedicated Anthropic Console workspace and scope the key to that workspace before enabling, so a runaway can't reach the main balance. Override the model with `CONCIERGE_LLM_MODEL` if needed (default `claude-opus-4-8`).
 
 ### Private family launch — seed & re-seed
 
