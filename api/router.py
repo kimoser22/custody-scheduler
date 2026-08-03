@@ -36,6 +36,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
+from core.ranges import MAX_RANGE_DAYS
 from database.activation import activate_override
 from database.schema import BaselineTable, OverrideTable, UserTable
 
@@ -45,7 +46,6 @@ router = APIRouter(prefix="/api/v1")
 schedule_router = APIRouter(prefix="/api/v1/schedule")
 
 DEFAULT_FAMILY_ID = 1
-MAX_RANGE_DAYS = 366
 OVERRIDE_REQUEST_TTL = timedelta(hours=24)
 PLANNED_OVERRIDE_TTL = timedelta(days=7)
 FEED_PAST_DAYS = 30

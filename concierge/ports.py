@@ -32,6 +32,9 @@ class ParsedIntent:
     assigned_parent: ParentRole
     reason: str
     override_type: OverrideType = OverrideType.MUTUAL_SWAP
+    # Inclusive end of a multi-day span; None means single day, matching
+    # ScheduleOverride.end_date and core.ranges.effective_end.
+    end_date: date | None = None
 
 
 @dataclass(frozen=True)

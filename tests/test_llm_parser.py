@@ -157,6 +157,88 @@ def test_prompt_carries_today_and_both_parent_labels() -> None:
     assert call["output_format"] is ExtractedSwap
 
 
+def test_prompt_covers_multi_day_spans() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(override_date=None, assigned_parent=None, reason="x")
+        )
+    )
+    _parser(client).parse("swap next Monday through Friday to Parent B")
+
+    system = str(client.parse_calls[0].get("system", "")).lower()
+    assert "end_date" in system
+
+
+# --- date ranges --------------------------------------------------------------
+
+
+def test_extracted_range_becomes_a_range_intent() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                override_date="2026-08-01",
+                end_date="2026-08-10",
+                assigned_parent="Parent B",
+                reason="vacation",
+            )
+        )
+    )
+    intent = _parser(client).parse("swap Aug 1 through Aug 10 to Parent B")
+    assert intent is not None
+    assert intent.override_date == date(2026, 8, 1)
+    assert intent.end_date == date(2026, 8, 10)
+
+
+def test_null_end_date_means_single_day() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                override_date="2026-08-07",
+                end_date=None,
+                assigned_parent="Parent B",
+                reason="swap",
+            )
+        )
+    )
+    intent = _parser(client).parse("swap Aug 7 to Parent B")
+    assert intent is not None
+    assert intent.end_date is None
+
+
+@pytest.mark.parametrize(
+    "bad_end",
+    ["2026-13-40", "next Friday", "", "2026-07-01"],  # last one precedes the start
+)
+def test_unusable_end_date_rejects_the_whole_intent(bad_end: str) -> None:
+    """Never downgrade a bad range to a single-day override — that is exactly
+    the silent truncation this feature exists to remove."""
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                override_date="2026-08-01",
+                end_date=bad_end,
+                assigned_parent="Parent B",
+                reason="swap",
+            )
+        )
+    )
+    assert _parser(client).parse("whatever") is None
+
+
+def test_range_longer_than_the_cap_is_rejected() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                override_date="2026-01-01",
+                end_date="2027-06-01",
+                assigned_parent="Parent B",
+                reason="swap",
+            )
+        )
+    )
+    assert _parser(client).parse("whatever") is None
+
+
 # --- CompositeIntentParser contract -------------------------------------------
 
 

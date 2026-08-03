@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from concierge.phones import normalize_phone
 from concierge.ports import ParsedIntent, RecipientOptedOutError, ResolvedSender
 from core.models import OverrideType, ParentRole
+from core.ranges import is_valid_range
 from database.schema import UserTable
 
 _logger = logging.getLogger(__name__)
@@ -101,20 +102,31 @@ class HeuristicIntentParser:
         else:
             assigned = None
 
-        override_date: date | None = None
+        # Collect every date rather than stopping at the first: a two-date
+        # message is a range request, and truncating it to the start silently
+        # books one day of a vacation the parent asked ten days for.
+        found: list[date] = []
         for token in text.replace(",", " ").split():
             if len(token) == 10 and token[4] == "-" and token[7] == "-":
                 try:
-                    override_date = date.fromisoformat(token)
+                    found.append(date.fromisoformat(token))
                 except ValueError:
                     continue
-                break
 
-        if override_date is None or assigned is None:
+        if assigned is None or not found:
+            return None
+        if len(found) > 2:
+            # Which two were meant? Don't guess — ask.
+            return None
+
+        override_date = min(found)
+        end_date = max(found) if len(found) == 2 else None
+        if not is_valid_range(override_date, end_date):
             return None
 
         return ParsedIntent(
             override_date=override_date,
+            end_date=end_date,
             assigned_parent=assigned,
             reason=text.strip() or "SMS swap request",
             override_type=OverrideType.MUTUAL_SWAP,

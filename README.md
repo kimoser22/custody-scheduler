@@ -117,6 +117,18 @@ If the inbound message doesn't clearly specify **both** a date and a parent
 (e.g. `swap 2026-07-08 to Parent B`), the concierge replies asking for
 clarification and creates no draft — it never guesses a date or parent.
 
+**Multi-day requests.** Two dates in one message are read as an inclusive
+range, so `swap 2026-08-01 to 2026-08-10 to Parent B for vacation` books all ten
+days as a single approval — matching what the website's date-range form does.
+Every message in the handshake echoes the full span (`2026-08-01 to
+2026-08-10`), because the confirmation is the requester's only chance to catch a
+misread range and the proposal is what the other parent actually consents to.
+
+Anything the parser can't read confidently returns "unclear" rather than a
+partial answer: three or more dates, a reversed or over-long span, or a missing
+parent all produce a clarification reply. A range is never silently shortened to
+its first day.
+
 ### Intent parsing (two layers, one fail-safe contract)
 
 `HeuristicIntentParser` runs first: deterministic matching for an ISO date plus

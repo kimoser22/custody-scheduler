@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from concierge.ports import IntentParser, ParsedIntent
 from core.models import OverrideType, ParentRole
+from core.ranges import is_valid_range
 
 DEFAULT_MODEL = "claude-opus-4-8"
 
@@ -39,8 +40,12 @@ class ExtractedSwap(BaseModel):
     own validation (-> None) instead of crashing schema parsing."""
 
     override_date: str | None
-    assigned_parent: Literal["Parent A", "Parent B"] | None
-    reason: str
+    # Inclusive end of a multi-day span, or null for a single day. A string for
+    # the same reason as override_date: a hallucinated non-date must fail our
+    # own validation rather than crash schema parsing.
+    end_date: str | None = None
+    assigned_parent: Literal["Parent A", "Parent B"] | None = None
+    reason: str = ""
 
 
 class _ParsingClient(Protocol):
@@ -57,8 +62,13 @@ def _system_prompt(today: date) -> str:
         f"{today.isoformat()}. The only valid parents are exactly "
         '"Parent A" and "Parent B" (map nicknames like mom/dad only when the '
         "message makes the mapping unambiguous).\n"
-        "Return the requested calendar date as an ISO YYYY-MM-DD string, "
-        "resolving relative phrases like 'next Friday' against today's date.\n"
+        "Return the requested calendar date as an ISO YYYY-MM-DD string in "
+        "override_date, resolving relative phrases like 'next Friday' against "
+        "today's date.\n"
+        "For a multi-day span ('through', 'until', 'the week of', 'Monday to "
+        "Friday'), also set end_date to the ISO date of the LAST day, "
+        "inclusive. Leave end_date null for a single day — never invent a span "
+        "the message did not ask for, and never shorten one it did.\n"
         "If the message does not clearly specify BOTH a real calendar date "
         "AND one of the two parents, return null for those fields — never "
         "guess. A wrong extraction schedules a wrong custody handoff."
@@ -110,6 +120,19 @@ class LLMIntentParser:
         except ValueError:
             return None
 
+        end_date: date | None = None
+        if extracted.end_date is not None:
+            try:
+                end_date = date.fromisoformat(extracted.end_date)
+            except ValueError:
+                # Reject the whole intent rather than falling back to a
+                # single day — a silent downgrade is exactly the truncation
+                # this range support exists to remove.
+                return None
+
+        if not is_valid_range(override_date, end_date):
+            return None
+
         assigned = _PARENT_ROLES.get(extracted.assigned_parent)
         if assigned is None:
             return None
@@ -117,6 +140,7 @@ class LLMIntentParser:
         reason = extracted.reason.strip() or text.strip() or "SMS swap request"
         return ParsedIntent(
             override_date=override_date,
+            end_date=end_date,
             assigned_parent=assigned,
             reason=reason,
             override_type=OverrideType.MUTUAL_SWAP,
