@@ -36,7 +36,7 @@ from core.models import (
     ParentRole,
     ScheduleOverride,
 )
-from core.ranges import ranges_overlap
+from database.activation import activate_override
 from database.schema import BaselineTable, OverrideTable, UserTable
 
 _logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ router = APIRouter(prefix="/api/v1")
 schedule_router = APIRouter(prefix="/api/v1/schedule")
 
 DEFAULT_FAMILY_ID = 1
+MAX_RANGE_DAYS = 366
 OVERRIDE_REQUEST_TTL = timedelta(hours=24)
 PLANNED_OVERRIDE_TTL = timedelta(days=7)
 FEED_PAST_DAYS = 30
@@ -326,6 +327,16 @@ def create_override(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="end_date must be on or after override_date.",
         )
+    if (
+        override.end_date is not None
+        and (override.end_date - override.override_date).days > MAX_RANGE_DAYS
+    ):
+        # Activation writes one active_custody_days row per day; a typo'd
+        # far-future end date should fail here, not at approval.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Override range cannot exceed {MAX_RANGE_DAYS} days.",
+        )
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     row = OverrideTable(
@@ -435,37 +446,27 @@ def decide_override_request(
             detail="Override request has expired.",
         )
 
-    row.status = result.new_status.value
-    row.decided_by_user_id = current_user.id
-    row.decided_at = now
-
     if result.new_status == OverrideStatus.APPROVED:
-        new_start = row.override_date
-        new_end = row.end_date if row.end_date is not None else row.override_date
-        existing_active = session.exec(
-            select(OverrideTable).where(
-                OverrideTable.family_id == current_user.family_id,
-                OverrideTable.is_active.is_(True),
-                OverrideTable.id != row.id,
-            )
-        ).all()
-        for other in existing_active:
-            other_end = (
-                other.end_date if other.end_date is not None else other.override_date
-            )
-            if ranges_overlap(new_start, new_end, other.override_date, other_end):
-                other.is_active = False
-                session.add(other)
-        row.is_active = True
+        # Shared with the SMS path (database/activation.py): flips flags and
+        # syncs active_custody_days in one unit of work.
+        activate_override(
+            session, row, decided_by_user_id=current_user.id, decided_at=now
+        )
+    else:
+        row.status = result.new_status.value
+        row.decided_by_user_id = current_user.id
+        row.decided_at = now
+        session.add(row)
 
-    session.add(row)
     try:
         session.commit()
     except IntegrityError:
+        # The active_custody_days backstop fired: a concurrent approval claimed
+        # an overlapping day between our read and this commit.
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="An active override for this date was just approved by another request.",
+            detail="Conflicts with an override that was just approved by another request.",
         ) from None
 
     session.refresh(row)

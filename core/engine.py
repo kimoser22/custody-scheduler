@@ -60,7 +60,20 @@ def calculate_schedule(
             and override.status == OverrideStatus.APPROVED
             and override_covers(override, current)
         ]
-        override = matching_overrides[-1] if matching_overrides else None
+        # Deterministic winner: highest id wins (the most recent request);
+        # equal/missing ids fall back to list position, preserving the
+        # historical last-in-list behavior. Overlapping actives should not
+        # exist — the active_custody_days constraint prevents them — but if a
+        # bug ever produces one, the calendar must be predictable rather than
+        # depend on query order.
+        override = (
+            max(
+                enumerate(matching_overrides),
+                key=lambda item: (item[1].id or 0, item[0]),
+            )[1]
+            if matching_overrides
+            else None
+        )
 
         if override is not None:
             schedule.append(

@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from concierge.phones import normalize_phone
 from concierge.ports import OverrideConflictError
 from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
-from core.ranges import ranges_overlap
+from database.activation import activate_override, deactivate_day_rows
 from database.schema import (
     AuditLogTable,
     HandshakeThreadTable,
@@ -83,6 +83,10 @@ class SqlOverrideRepository:
         row.status = status.value
         if is_active is not None:
             row.is_active = is_active
+            if not is_active:
+                # Keep the invariant unconditional: day rows exist iff active.
+                # No-op for rows that were never activated.
+                deactivate_day_rows(self._session, override_id)
         if decided_by_user_id is not None:
             row.decided_by_user_id = decided_by_user_id
         if decided_at is not None:
@@ -103,33 +107,23 @@ class SqlOverrideRepository:
         if row is None:
             raise KeyError(override_id)
 
-        new_start = row.override_date
-        new_end = row.end_date if row.end_date is not None else row.override_date
-        existing_active = self._session.exec(
-            select(OverrideTable).where(
-                OverrideTable.family_id == row.family_id,
-                OverrideTable.is_active.is_(True),
-                OverrideTable.id != row.id,
-            )
-        ).all()
-        for other in existing_active:
-            other_end = other.end_date if other.end_date is not None else other.override_date
-            if ranges_overlap(new_start, new_end, other.override_date, other_end):
-                other.is_active = False
-                self._session.add(other)
-
-        row.status = OverrideStatus.APPROVED.value
-        row.is_active = True
-        row.decided_by_user_id = decided_by_user_id
-        row.decided_at = decided_at
-        self._session.add(row)
+        family_id = row.family_id
+        override_date = row.override_date
+        activate_override(
+            self._session,
+            row,
+            decided_by_user_id=decided_by_user_id,
+            decided_at=decided_at,
+        )
         try:
             self._session.commit()
         except IntegrityError:
+            # The active_custody_days backstop fired: a concurrent approval
+            # claimed an overlapping day between our read and this commit.
             self._session.rollback()
             raise OverrideConflictError(
-                f"An active override already exists for family {row.family_id} "
-                f"on {row.override_date}."
+                f"An active override already exists for family {family_id} "
+                f"on {override_date}."
             ) from None
         self._session.refresh(row)
         return _to_domain(row)
