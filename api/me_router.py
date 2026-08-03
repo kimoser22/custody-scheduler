@@ -14,7 +14,10 @@ from database.schema import UserTable
 
 me_router = APIRouter(prefix="/api/v1")
 
-_MIN_PASSCODE_LENGTH = 4
+# The token endpoint is public and guards custody data. Eight characters keeps
+# guessing infeasible rather than merely slow; the throttle in api.login_throttle
+# is the second layer, not the only one.
+_MIN_PASSCODE_LENGTH = 8
 
 
 class MeResponse(BaseModel):

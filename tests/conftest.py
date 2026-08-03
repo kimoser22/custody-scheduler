@@ -57,6 +57,17 @@ def _isolate_anthropic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_login_throttle() -> None:
+    """The throttle is shared across requests in a process, so failures from
+    one test would otherwise lock out the next."""
+    from api.login_throttle import login_throttle
+
+    login_throttle.reset()
+    yield
+    login_throttle.reset()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_email_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """SmtpEmailNotifier only reaches the network when every SMTP_* var is set,
     and seeding reads SEED_*_EMAIL. Strip both so no test can mail a real

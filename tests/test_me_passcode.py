@@ -106,6 +106,40 @@ def test_too_short_new_passcode_is_rejected(
     assert response.status_code == 400
 
 
+def test_seven_character_passcode_is_rejected(
+    client_fixture: TestClient,
+    session_fixture: Session,
+) -> None:
+    """The token endpoint is public and guards custody data, so the floor has
+    to be high enough that guessing is infeasible rather than merely slow."""
+    parent = _seed_parent_with_passcode(session_fixture)
+    app.dependency_overrides[get_current_user] = _override_current_user(parent)
+
+    response = client_fixture.patch(
+        "/api/v1/me/passcode",
+        json={"current_passcode": "old-pass", "new_passcode": "abcdefg"},
+    )
+
+    assert response.status_code == 400
+    session_fixture.refresh(parent)
+    assert verify_passcode("old-pass", parent.passcode_hash)
+
+
+def test_eight_character_passcode_is_accepted(
+    client_fixture: TestClient,
+    session_fixture: Session,
+) -> None:
+    parent = _seed_parent_with_passcode(session_fixture)
+    app.dependency_overrides[get_current_user] = _override_current_user(parent)
+
+    response = client_fixture.patch(
+        "/api/v1/me/passcode",
+        json={"current_passcode": "old-pass", "new_passcode": "abcdefgh"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_change_passcode_unauthenticated(client_fixture: TestClient) -> None:
     response = client_fixture.patch(
         "/api/v1/me/passcode",
