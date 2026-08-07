@@ -24,7 +24,7 @@ const PENDING_OVERRIDE: ScheduleOverride = {
 };
 
 describe("PendingOverrides", () => {
-  it("renders each pending request with its details", async () => {
+  it("renders each pending request with title-first hierarchy", async () => {
     const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
       PENDING_OVERRIDE,
     ]);
@@ -38,12 +38,44 @@ describe("PendingOverrides", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/2026-01-15/)).toBeInTheDocument();
+      expect(
+        screen.getByText("Holiday / vacation · Parent B"),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText(/Holiday \/ vacation/)).toBeInTheDocument();
+    expect(screen.getByText("2026-01-15")).toBeInTheDocument();
+    expect(screen.queryByText(/2026-01-15 to/)).not.toBeInTheDocument();
     expect(screen.getByText(/Take the kids to grandma's/)).toBeInTheDocument();
     expect(screen.getByText(/Requested by Parent A/)).toBeInTheDocument();
     expect(screen.getByText(/UTC/)).toBeInTheDocument();
+  });
+
+  it("renders multi-day ranges with duration on a separate date line", async () => {
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
+      {
+        ...PENDING_OVERRIDE,
+        id: 8,
+        override_date: "2026-01-10",
+        end_date: "2026-01-14",
+        description: "Winter trip",
+      },
+    ]);
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={102}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Holiday / vacation · Parent B"),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText("2026-01-10 to 2026-01-14")).toBeInTheDocument();
+    expect(screen.getByText(/5 days/)).toBeInTheDocument();
+    expect(screen.getByText("Winter trip")).toBeInTheDocument();
   });
 
   it("calls sweep-expired before loading pending requests", async () => {

@@ -8,6 +8,10 @@ import type {
   SweepExpiredOverrides,
 } from "@/lib/api/schedule";
 import { formatExpiryLabel } from "@/lib/formatExpiry";
+import {
+  formatOverrideRange,
+  overrideTypeLabel,
+} from "@/lib/formatOverrideDisplay";
 import type { ScheduleOverride } from "@/lib/types";
 
 interface PendingOverridesProps {
@@ -124,25 +128,36 @@ export function PendingOverrides({
               (request.requested_by_user_id != null
                 ? `user ${request.requested_by_user_id}`
                 : null);
+            const range = formatOverrideRange(
+              request.override_date,
+              request.end_date,
+            );
 
             return (
               <li key={request.id} className="rounded border p-3 text-sm">
                 <div className="font-medium">
-                  {request.end_date && request.end_date !== request.override_date
-                    ? `${request.override_date} to ${request.end_date}`
-                    : request.override_date}{" "}
-                  &mdash; {request.assigned_parent} (
-                  {request.override_type === "Holiday"
-                    ? "Holiday / vacation"
-                    : request.override_type}
-                  )
+                  {overrideTypeLabel(request.override_type)} ·{" "}
+                  {request.assigned_parent}
+                </div>
+                <div className="text-slate-700">
+                  {range.dateLine}
+                  {range.dayCount != null ? (
+                    <span className="text-slate-500">
+                      {" "}
+                      · {range.dayCount === 1
+                        ? "1 day"
+                        : `${range.dayCount} days`}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="text-slate-600">{request.description}</div>
                 {requester ? (
-                  <div className="text-slate-600">Requested by {requester}</div>
+                  <div className="text-xs text-slate-600">
+                    Requested by {requester}
+                  </div>
                 ) : null}
                 {request.expires_at ? (
-                  <div className="text-slate-600">
+                  <div className="text-xs text-slate-600">
                     {formatExpiryLabel(request.expires_at)}
                   </div>
                 ) : null}

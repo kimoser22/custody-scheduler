@@ -13,15 +13,26 @@ const baseDay: DailyCustodyState = {
 };
 
 describe("DayCell", () => {
-  it("renders the day and parent assignment", () => {
+  it("renders an unpadded day and short parent label", () => {
     render(<DayCell day={baseDay} />);
-    expect(screen.getByRole("gridcell")).toHaveTextContent("05");
-    expect(screen.getByRole("gridcell")).toHaveTextContent(PARENT_A);
+    const cell = screen.getByRole("gridcell");
+    expect(cell).toHaveTextContent("5");
+    expect(cell).not.toHaveTextContent("05");
+    expect(cell).toHaveTextContent("A");
+    expect(cell).not.toHaveTextContent("Parent A");
+  });
+
+  it("exposes the full parent and date in the accessible name", () => {
+    render(<DayCell day={baseDay} />);
+    expect(
+      screen.getByRole("gridcell", { name: /2026-01-05.*Parent A/i }),
+    ).toBeInTheDocument();
   });
 
   it("applies parent-specific styling class", () => {
     render(<DayCell day={{ ...baseDay, final_parent: PARENT_B }} />);
     expect(screen.getByRole("gridcell")).toHaveAttribute("data-parent", "parent-b");
+    expect(screen.getByRole("gridcell")).toHaveTextContent("B");
   });
 
   it("highlights overridden days", () => {
@@ -44,6 +55,27 @@ describe("DayCell", () => {
     );
 
     expect(screen.getByRole("gridcell")).toHaveAttribute("data-overridden", "true");
+    expect(screen.getByText("Holiday")).toBeInTheDocument();
+  });
+
+  it("shows Holiday badge when type is Holiday and description is empty", () => {
+    render(
+      <DayCell
+        day={{
+          ...baseDay,
+          is_overridden: true,
+          final_parent: PARENT_B,
+          override_details: {
+            override_date: "2026-01-05",
+            assigned_parent: PARENT_B,
+            override_type: "Holiday",
+            description: "   ",
+            is_active: true,
+            status: "Approved",
+          },
+        }}
+      />,
+    );
     expect(screen.getByText("Holiday")).toBeInTheDocument();
   });
 
