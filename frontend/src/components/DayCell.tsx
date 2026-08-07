@@ -1,5 +1,6 @@
 import type { DailyCustodyState } from "@/lib/types";
 import { PARENT_A } from "@/lib/types";
+import { dayOfMonthLabel, shortParentLabel } from "@/lib/formatOverrideDisplay";
 
 interface DayCellProps {
   day: DailyCustodyState;
@@ -26,11 +27,15 @@ export function DayCell({ day, onSelect }: DayCellProps) {
   const parentClass =
     day.final_parent === PARENT_A ? "parent-a" : "parent-b";
   const badge = day.is_overridden ? overrideBadgeLabel(day) : null;
+  const dayNumber = dayOfMonthLabel(day.current_date);
+  const shortParent = shortParentLabel(day.final_parent);
+  const ariaLabel = `${day.current_date}, ${day.final_parent}`;
 
   return (
     <button
       type="button"
       role="gridcell"
+      aria-label={ariaLabel}
       data-overridden={day.is_overridden ? "true" : "false"}
       data-parent={parentClass}
       title={day.override_details?.description || day.override_details?.override_type}
@@ -39,8 +44,10 @@ export function DayCell({ day, onSelect }: DayCellProps) {
       }`}
       onClick={() => onSelect?.(day)}
     >
-      <div className="font-medium">{day.current_date.slice(8)}</div>
-      <div>{day.final_parent}</div>
+      <div className="font-medium" aria-hidden="true">
+        {dayNumber}
+      </div>
+      <div aria-hidden="true">{shortParent}</div>
       {badge ? (
         <span className="mt-1 inline-block text-xs text-amber-700">{badge}</span>
       ) : null}

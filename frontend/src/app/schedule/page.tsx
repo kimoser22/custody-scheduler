@@ -2,15 +2,19 @@
 
 import { useState } from "react";
 
+import { HouseholdAuthBar } from "@/components/HouseholdAuthBar";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { CalendarSubscribe } from "@/components/CalendarSubscribe";
 import { ContactSettings } from "@/components/ContactSettings";
-import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PasscodeSettings } from "@/components/PasscodeSettings";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { RecordsExport } from "@/components/RecordsExport";
+import {
+  AccountSettings,
+  AccountSettingsSection,
+} from "@/components/AccountSettings";
 import { useSchedule } from "@/hooks/useSchedule";
 import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
 import { downloadFamilyExportRequest } from "@/lib/api/export";
@@ -92,32 +96,41 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      <DevAuthBar onAuthChange={handleAuthChange} />
+      <HouseholdAuthBar onAuthChange={handleAuthChange} />
 
       {authToken ? (
-        <div className="mt-4 mb-4 space-y-4">
-          <CalendarSubscribe
-            key={authToken}
-            ensureCalendarFeed={ensureCalendarFeedRequest}
-          />
-          <PasscodeSettings
-            key={`passcode-${authToken}`}
-            changePasscode={changePasscodeRequest}
-          />
-          <RecordsExport
-            key={`export-${authToken}`}
-            downloadFamilyExport={downloadFamilyExportRequest}
-          />
-        </div>
-      ) : null}
-
-      {canRequestOverride(session) ? (
         <div className="mt-4 mb-4">
-          <ContactSettings
-            key={authToken ?? "signed-out"}
-            fetchMe={fetchMeRequest}
-            updateMe={updateMeRequest}
-          />
+          <AccountSettings showContacts={canRequestOverride(session)}>
+            <AccountSettingsSection id="calendar" title="Calendar subscribe">
+              <CalendarSubscribe
+                key={authToken}
+                ensureCalendarFeed={ensureCalendarFeedRequest}
+              />
+            </AccountSettingsSection>
+            <AccountSettingsSection id="passcode" title="Passcode">
+              <PasscodeSettings
+                key={`passcode-${authToken}`}
+                changePasscode={changePasscodeRequest}
+              />
+            </AccountSettingsSection>
+            <AccountSettingsSection id="download" title="Download records">
+              <RecordsExport
+                key={`export-${authToken}`}
+                downloadFamilyExport={downloadFamilyExportRequest}
+              />
+            </AccountSettingsSection>
+            <AccountSettingsSection
+              id="contacts"
+              title="Contact settings"
+              parentOnly
+            >
+              <ContactSettings
+                key={authToken ?? "signed-out"}
+                fetchMe={fetchMeRequest}
+                updateMe={updateMeRequest}
+              />
+            </AccountSettingsSection>
+          </AccountSettings>
         </div>
       ) : null}
 

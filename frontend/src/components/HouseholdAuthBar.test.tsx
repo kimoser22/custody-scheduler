@@ -2,11 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DevAuthBar } from "@/components/DevAuthBar";
+import { HouseholdAuthBar } from "@/components/HouseholdAuthBar";
 import type { LoginOutcome } from "@/lib/api/auth";
 import { getAuthToken, getSession, login } from "@/lib/auth";
 
-describe("DevAuthBar", () => {
+describe("HouseholdAuthBar", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -24,22 +24,22 @@ describe("DevAuthBar", () => {
         },
       }),
     );
-    // Simulate a prior sign-in that already wrote a session to localStorage
-    // (e.g. from an earlier page load), before this component ever mounts.
     await login(102, "bravo-pass", loginFn);
 
     const onAuthChange = vi.fn();
-    render(<DevAuthBar onAuthChange={onAuthChange} />);
+    render(<HouseholdAuthBar onAuthChange={onAuthChange} />);
 
-    expect(
-      await screen.findByText("Signed in as Parent (user 102)"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Signed in as Parent B/)).toBeInTheDocument();
     expect(screen.queryByText("Not signed in")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\(user /)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Passcode")).not.toBeInTheDocument();
   });
 
   it("shows not-signed-in on mount when localStorage has no session", () => {
-    render(<DevAuthBar />);
+    render(<HouseholdAuthBar />);
     expect(screen.getByText("Not signed in")).toBeInTheDocument();
+    expect(screen.getByLabelText("Household member")).toBeInTheDocument();
+    expect(screen.getByLabelText("Passcode")).toBeInTheDocument();
   });
 
   it("logs in with a passcode and stores the returned session", async () => {
@@ -57,9 +57,9 @@ describe("DevAuthBar", () => {
       }),
     );
 
-    render(<DevAuthBar loginFn={loginFn} />);
+    render(<HouseholdAuthBar loginFn={loginFn} />);
 
-    await user.selectOptions(screen.getByLabelText("Identity"), "Parent A");
+    await user.selectOptions(screen.getByLabelText("Household member"), "Parent A");
     await user.type(screen.getByLabelText("Passcode"), "alpha-pass");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -70,6 +70,9 @@ describe("DevAuthBar", () => {
       userId: 101,
       role: "Parent",
     });
+    expect(await screen.findByText(/Signed in as Parent A/)).toBeInTheDocument();
+    expect(screen.queryByText(/\(user /)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Passcode")).not.toBeInTheDocument();
   });
 
   it("shows an error and stores nothing when the passcode is rejected", async () => {
@@ -82,7 +85,7 @@ describe("DevAuthBar", () => {
       }),
     );
 
-    render(<DevAuthBar loginFn={loginFn} />);
+    render(<HouseholdAuthBar loginFn={loginFn} />);
 
     await user.type(screen.getByLabelText("Passcode"), "wrong");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
