@@ -2,19 +2,19 @@
 
 import { useState } from "react";
 
-import {
-  AccountSettings,
-  AccountSettingsSection,
-} from "@/components/AccountSettings";
+import { HouseholdAuthBar } from "@/components/HouseholdAuthBar";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { CalendarSubscribe } from "@/components/CalendarSubscribe";
 import { ContactSettings } from "@/components/ContactSettings";
-import { DevAuthBar } from "@/components/DevAuthBar";
 import { LegalFooter } from "@/components/LegalFooter";
 import { OverrideForm } from "@/components/OverrideForm";
 import { PasscodeSettings } from "@/components/PasscodeSettings";
 import { PendingOverrides } from "@/components/PendingOverrides";
 import { RecordsExport } from "@/components/RecordsExport";
+import {
+  AccountSettings,
+  AccountSettingsSection,
+} from "@/components/AccountSettings";
 import { useSchedule } from "@/hooks/useSchedule";
 import { ensureCalendarFeedRequest } from "@/lib/api/calendarFeed";
 import { downloadFamilyExportRequest } from "@/lib/api/export";
@@ -96,7 +96,7 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      <DevAuthBar onAuthChange={handleAuthChange} />
+      <HouseholdAuthBar onAuthChange={handleAuthChange} />
 
       {authToken ? (
         <div className="mt-4 mb-4">

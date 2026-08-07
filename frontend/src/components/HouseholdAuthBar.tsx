@@ -12,22 +12,42 @@ import {
   login,
 } from "@/lib/auth";
 
-interface DevAuthBarProps {
+interface HouseholdAuthBarProps {
   onAuthChange?: () => void;
   loginFn?: LoginFn;
 }
 
 const IDENTITIES: Identity[] = ["Viewer", "Parent A", "Parent B"];
 
-export function DevAuthBar({ onAuthChange, loginFn }: DevAuthBarProps) {
+/** Friendly label for the signed-in strip — never expose raw user ids. */
+export function householdDisplayLabel(
+  session: Session,
+  selectedIdentity?: Identity,
+): string {
+  if (
+    selectedIdentity &&
+    IDENTITY_USER_IDS[selectedIdentity] === session.userId
+  ) {
+    return selectedIdentity;
+  }
+  for (const identity of IDENTITIES) {
+    if (IDENTITY_USER_IDS[identity] === session.userId) {
+      return identity;
+    }
+  }
+  return session.role;
+}
+
+export function HouseholdAuthBar({
+  onAuthChange,
+  loginFn,
+}: HouseholdAuthBarProps) {
   const [identity, setIdentity] = useState<Identity>("Viewer");
   const [passcode, setPasscode] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Restore a session written by an earlier page load instead of always
-  // starting signed-out — a stored token is still valid until it expires.
   useEffect(() => {
     const existing = getSession();
     if (existing) {
@@ -63,19 +83,38 @@ export function DevAuthBar({ onAuthChange, loginFn }: DevAuthBarProps) {
     onAuthChange?.();
   }
 
+  if (session) {
+    const label = householdDisplayLabel(session, identity);
+    return (
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded border border-slate-200 bg-white p-3 text-sm">
+        <span className="font-medium text-slate-800">Household</span>
+        <span className="text-slate-700">Signed in as {label}</span>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="rounded border border-slate-200 px-3 py-1 text-slate-700 hover:bg-slate-50"
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form
       onSubmit={handleSignIn}
-      className="mb-4 flex flex-wrap items-center gap-3 rounded border bg-slate-50 p-3 text-sm"
+      className="mb-4 flex flex-wrap items-center gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
     >
-      <span className="font-medium">Sign in</span>
-      <label htmlFor="dev-identity">Identity</label>
+      <span className="font-medium text-slate-800">Household</span>
+      <label htmlFor="household-member" className="text-slate-600">
+        Household member
+      </label>
       <select
-        id="dev-identity"
-        aria-label="Identity"
+        id="household-member"
+        aria-label="Household member"
         value={identity}
         onChange={(event) => setIdentity(event.target.value as Identity)}
-        className="rounded border px-2 py-1"
+        className="rounded border border-slate-200 px-2 py-1"
       >
         {IDENTITIES.map((option) => (
           <option key={option} value={option}>
@@ -83,14 +122,16 @@ export function DevAuthBar({ onAuthChange, loginFn }: DevAuthBarProps) {
           </option>
         ))}
       </select>
-      <label htmlFor="dev-passcode">Passcode</label>
+      <label htmlFor="household-passcode" className="text-slate-600">
+        Passcode
+      </label>
       <input
-        id="dev-passcode"
+        id="household-passcode"
         aria-label="Passcode"
         type="password"
         value={passcode}
         onChange={(event) => setPasscode(event.target.value)}
-        className="rounded border px-2 py-1"
+        className="rounded border border-slate-200 px-2 py-1"
       />
       <button
         type="submit"
@@ -99,22 +140,7 @@ export function DevAuthBar({ onAuthChange, loginFn }: DevAuthBarProps) {
       >
         Sign in
       </button>
-      {session ? (
-        <>
-          <span className="text-slate-600">
-            Signed in as {session.role} (user {session.userId})
-          </span>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="rounded border px-3 py-1"
-          >
-            Sign out
-          </button>
-        </>
-      ) : (
-        <span className="text-slate-600">Not signed in</span>
-      )}
+      <span className="text-slate-600">Not signed in</span>
       {error ? <span className="text-red-600">{error}</span> : null}
     </form>
   );
