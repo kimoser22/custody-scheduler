@@ -20,6 +20,7 @@ from api.passcodes import hash_passcode  # noqa: E402
 from concierge.factory import describe_handshake_durability  # noqa: E402
 from api.router import DEFAULT_BASELINE, DEFAULT_FAMILY_ID, router, schedule_router  # noqa: E402
 from api.twilio_webhook import twilio_router  # noqa: E402
+from api.security_headers import security_headers_middleware  # noqa: E402
 from database.connection import engine  # noqa: E402
 from database import schema  # noqa: E402, F401 — register table models
 from database.schema import BaselineTable, FamilyLink, UserTable  # noqa: E402
@@ -281,6 +282,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Registered after CORS so it runs on the way out: security headers ride every
+# response, including CORS preflights and error responses.
+app.middleware("http")(security_headers_middleware)
 
 app.include_router(auth_router)
 app.include_router(me_router)
