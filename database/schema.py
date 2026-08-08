@@ -128,3 +128,22 @@ class SmsOptOutTable(SQLModel, table=True):
 
     phone: str = Field(primary_key=True)
     opted_out_at: datetime
+
+
+class LoginAttemptTable(SQLModel, table=True):
+    """Consecutive failed passcode attempts, and the lock they earned.
+
+    On disk rather than in a dict because this app redeploys on every merge to
+    master: a process-local counter hands an attacker a clean slate for free,
+    several times a week. Rows exist only while a user has failures to their
+    name — a success or an expired lock deletes the row.
+
+    No foreign key to users: unknown user ids are counted too (api/auth_router),
+    or probing for which ids exist would be an unthrottled oracle.
+    """
+
+    __tablename__ = "login_attempts"
+
+    user_id: int = Field(primary_key=True)
+    failure_count: int = 0
+    locked_until: datetime | None = None
