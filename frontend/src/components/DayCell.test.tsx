@@ -20,6 +20,8 @@ describe("DayCell", () => {
     expect(cell).not.toHaveTextContent("05");
     expect(cell).toHaveTextContent("A");
     expect(cell).not.toHaveTextContent("Parent A");
+    expect(cell.className).toMatch(/p-1/);
+    expect(cell.className).toMatch(/text-xs/);
   });
 
   it("exposes the full parent and date in the accessible name", () => {
@@ -54,8 +56,10 @@ describe("DayCell", () => {
       />,
     );
 
-    expect(screen.getByRole("gridcell")).toHaveAttribute("data-overridden", "true");
+    const cell = screen.getByRole("gridcell");
+    expect(cell).toHaveAttribute("data-overridden", "true");
     expect(screen.getByText("Holiday")).toBeInTheDocument();
+    expect(screen.getByText("Holiday").className).toMatch(/line-clamp-1/);
   });
 
   it("shows Holiday badge when type is Holiday and description is empty", () => {

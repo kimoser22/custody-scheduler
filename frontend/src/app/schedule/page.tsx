@@ -66,13 +66,13 @@ export default function SchedulePage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
+    <main className="mx-auto max-w-5xl p-4 sm:p-6">
       <h1 className="mb-2 text-2xl font-bold">Custody Schedule</h1>
-      <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+      <div className="sticky top-0 z-10 -mx-4 mb-4 flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 text-sm text-slate-600 backdrop-blur sm:-mx-6 sm:px-6">
         <button
           type="button"
           aria-label="Previous month"
-          className="rounded border px-2 py-1"
+          className="min-h-11 min-w-11 rounded border px-3"
           onClick={() => {
             setSelectedDay(null);
             setMonthReference((current) => shiftMonth(current, -1));
@@ -86,7 +86,7 @@ export default function SchedulePage() {
         <button
           type="button"
           aria-label="Next month"
-          className="rounded border px-2 py-1"
+          className="min-h-11 min-w-11 rounded border px-3"
           onClick={() => {
             setSelectedDay(null);
             setMonthReference((current) => shiftMonth(current, 1));
@@ -156,6 +156,19 @@ export default function SchedulePage() {
         />
       ) : null}
 
+      {authToken ? (
+        <div className="mt-6">
+          <PendingOverrides
+            key={`${authToken}-${pendingListVersion}`}
+            fetchPendingOverrides={fetchPendingOverridesRequest}
+            decideOverride={decideOverrideRequest}
+            sweepExpiredOverrides={sweepExpiredOverridesRequest}
+            currentUserId={currentUserId}
+            onDecided={() => void refetch()}
+          />
+        </div>
+      ) : null}
+
       {showOverrideForm && selectedDay ? (
         <div className="mt-6">
           <OverrideForm
@@ -166,19 +179,6 @@ export default function SchedulePage() {
               void refetch();
               setPendingListVersion((version) => version + 1);
             }}
-          />
-        </div>
-      ) : null}
-
-      {authToken ? (
-        <div className="mt-6">
-          <PendingOverrides
-            key={`${authToken}-${pendingListVersion}`}
-            fetchPendingOverrides={fetchPendingOverridesRequest}
-            decideOverride={decideOverrideRequest}
-            sweepExpiredOverrides={sweepExpiredOverridesRequest}
-            currentUserId={currentUserId}
-            onDecided={() => void refetch()}
           />
         </div>
       ) : null}

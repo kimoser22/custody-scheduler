@@ -39,7 +39,7 @@ export function DayCell({ day, onSelect }: DayCellProps) {
       data-overridden={day.is_overridden ? "true" : "false"}
       data-parent={parentClass}
       title={day.override_details?.description || day.override_details?.override_type}
-      className={`rounded border p-2 text-left text-sm ${parentClass} ${
+      className={`rounded border p-1 text-left text-xs sm:p-2 sm:text-sm ${parentClass} ${
         day.is_overridden ? "ring-2 ring-amber-500" : ""
       }`}
       onClick={() => onSelect?.(day)}
@@ -49,7 +49,9 @@ export function DayCell({ day, onSelect }: DayCellProps) {
       </div>
       <div aria-hidden="true">{shortParent}</div>
       {badge ? (
-        <span className="mt-1 inline-block text-xs text-amber-700">{badge}</span>
+        <span className="mt-1 inline-block line-clamp-1 text-xs text-amber-700">
+          {badge}
+        </span>
       ) : null}
     </button>
   );
