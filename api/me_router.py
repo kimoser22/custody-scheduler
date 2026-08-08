@@ -1,13 +1,21 @@
 """Self-service profile: contact phone and email for the signed-in user."""
 
 import secrets
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlmodel import select
 
-from api.dependencies import CurrentUser, SessionDep, get_current_user, require_parent_role
+from api.dependencies import (
+    CurrentUser,
+    LoginThrottleDep,
+    SessionDep,
+    get_current_user,
+    require_parent_role,
+)
+from api.login_throttle import lockout_error
 from api.passcodes import hash_passcode, verify_passcode
 from concierge.phones import normalize_phone
 from database.schema import UserTable
@@ -165,6 +173,7 @@ def patch_me(
 def change_passcode(
     body: PasscodeChangeRequest,
     session: SessionDep,
+    throttle: LoginThrottleDep,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> PasscodeChangeResponse:
     """Rotate the signed-in user's login passcode without a DB wipe."""
@@ -174,12 +183,27 @@ def change_passcode(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No passcode is set; enable login via seed env first.",
         )
+
+    # Same counter as the login endpoint: this verifies the same secret, so a
+    # stolen session must not buy a fresh guessing budget. Checked before
+    # verify_passcode for the same reason it is there — a lock a correct guess
+    # can walk through is not a lock.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    locked_until = throttle.locked_until(current_user.id, now=now)
+    if locked_until is not None:
+        raise lockout_error(locked_until, now=now)
+
     if not verify_passcode(body.current_passcode, user.passcode_hash):
+        throttle.record_failure(current_user.id, now=now)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current passcode is incorrect.",
         )
 
+    # Everything below is a validation error on the *new* passcode, not a failed
+    # guess at the old one, so none of it counts against the throttle — a user
+    # must not be able to lock themselves out by fumbling the field they are
+    # setting.
     new_passcode = body.new_passcode.strip()
     if len(new_passcode) < _MIN_PASSCODE_LENGTH:
         raise HTTPException(
@@ -195,6 +219,7 @@ def change_passcode(
     user.passcode_hash = hash_passcode(new_passcode)
     session.add(user)
     session.commit()
+    throttle.record_success(current_user.id)
     return PasscodeChangeResponse(ok=True)
 
 

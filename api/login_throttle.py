@@ -1,20 +1,32 @@
-"""Failed-login throttling for the public token endpoint.
+"""Failed-passcode throttling for the endpoints that verify one online.
 
-`POST /api/v1/auth/token` is reachable by anyone and guards custody data, so
-repeated wrong passcodes must stop being free. Lockout is keyed by user id and
-deliberately short: a stranger spamming wrong passcodes can briefly lock a
-parent out, but gains nothing by it and the lock clears itself.
+Two endpoints check a passcode against its hash: `POST /api/v1/auth/token`
+(public) and `PATCH /api/v1/me/passcode` (authenticated). Both are guessing
+surfaces for the same secret, so both draw on one counter per user id — an
+attacker holding a stolen session should not get a fresh budget by moving to the
+other endpoint.
 
-State is per-process, which suits this app (one machine, one uvicorn process —
-see the deploy notes in the README). A restart clears the counters; that
-slightly favors an attacker who cannot trigger restarts anyway, and is the
-right trade against adding a table on the hot path of every login.
+Lockout is deliberately short and keyed by user id: a stranger spamming wrong
+passcodes can briefly lock a parent out, but gains nothing by it and the lock
+clears itself.
+
+State lives in the database rather than in this process. That costs a small
+write on failure and buys the only thing that matters here: this app redeploys
+on every merge to master, and a process-local counter would reset each time,
+mid-guess, for free.
 """
 
 from __future__ import annotations
 
-import threading
+import math
 from datetime import datetime, timedelta, timezone
+from typing import Protocol
+
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session
+
+from database.schema import LoginAttemptTable
 
 MAX_CONSECUTIVE_FAILURES = 5
 LOCKOUT_WINDOW = timedelta(minutes=2)
@@ -24,47 +36,68 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class LoginThrottle:
+class LoginThrottle(Protocol):
     """Counts consecutive failures per user id and locks briefly at the limit."""
 
-    def __init__(self) -> None:
-        self._failures: dict[int, int] = {}
-        self._locked_until: dict[int, datetime] = {}
-        self._lock = threading.Lock()
+    def locked_until(
+        self, user_id: int, *, now: datetime | None = None
+    ) -> datetime | None:
+        """When the lock lifts, or None when the id may attempt a passcode."""
+        ...
 
-    def locked_until(self, user_id: int, *, now: datetime | None = None) -> datetime | None:
-        """When the lock lifts, or None when the id may attempt a login."""
+    def record_failure(self, user_id: int, *, now: datetime | None = None) -> None: ...
+
+    def record_success(self, user_id: int) -> None: ...
+
+
+class SqlLoginThrottle:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def locked_until(
+        self, user_id: int, *, now: datetime | None = None
+    ) -> datetime | None:
         moment = now or _utcnow()
-        with self._lock:
-            until = self._locked_until.get(user_id)
-            if until is None:
-                return None
-            if moment >= until:
-                # Expired: clear it so the next failure starts a fresh count.
-                self._locked_until.pop(user_id, None)
-                self._failures.pop(user_id, None)
-                return None
-            return until
+        row = self._session.get(LoginAttemptTable, user_id)
+        if row is None or row.locked_until is None:
+            return None
+        if moment >= row.locked_until:
+            # Expired: drop the row so the next failure starts a fresh count,
+            # rather than re-locking on the very next attempt forever.
+            self._session.delete(row)
+            self._session.commit()
+            return None
+        return row.locked_until
 
     def record_failure(self, user_id: int, *, now: datetime | None = None) -> None:
         moment = now or _utcnow()
-        with self._lock:
-            count = self._failures.get(user_id, 0) + 1
-            self._failures[user_id] = count
-            if count >= MAX_CONSECUTIVE_FAILURES:
-                self._locked_until[user_id] = moment + LOCKOUT_WINDOW
+        row = self._session.get(LoginAttemptTable, user_id)
+        if row is None:
+            row = LoginAttemptTable(user_id=user_id, failure_count=0)
+        row.failure_count += 1
+        if row.failure_count >= MAX_CONSECUTIVE_FAILURES:
+            row.locked_until = moment + LOCKOUT_WINDOW
+        self._session.add(row)
+        try:
+            self._session.commit()
+        except IntegrityError:
+            # A concurrent failure inserted the row first. Losing one increment
+            # of a five-strike counter is not worth a retry loop.
+            self._session.rollback()
 
     def record_success(self, user_id: int) -> None:
-        with self._lock:
-            self._failures.pop(user_id, None)
-            self._locked_until.pop(user_id, None)
-
-    def reset(self) -> None:
-        """Clear all state (tests)."""
-        with self._lock:
-            self._failures.clear()
-            self._locked_until.clear()
+        row = self._session.get(LoginAttemptTable, user_id)
+        if row is None:
+            return
+        self._session.delete(row)
+        self._session.commit()
 
 
-# Shared across requests in this process.
-login_throttle = LoginThrottle()
+def lockout_error(locked_until: datetime, *, now: datetime) -> HTTPException:
+    """The 429 both throttled endpoints raise, so they stay identical."""
+    retry_after = max(1, math.ceil((locked_until - now).total_seconds()))
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many failed attempts. Try again shortly.",
+        headers={"Retry-After": str(retry_after)},
+    )

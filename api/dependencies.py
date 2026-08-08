@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from api.auth_tokens import TokenError, verify_token
 from api.email_notifier import SmtpEmailNotifier
+from api.login_throttle import LoginThrottle, SqlLoginThrottle
 from concierge.adapters import EnvTwilioSmsGateway
 from concierge.ports import AuditRepository, OptOutAwareSmsGateway, OptOutStore, SmsGateway
 from concierge.repos import SqlAuditRepository, SqlOptOutStore
@@ -49,6 +50,13 @@ def get_audit(session: SessionDep) -> AuditRepository:
 
 
 AuditDep = Annotated[AuditRepository, Depends(get_audit)]
+
+
+def get_login_throttle(session: SessionDep) -> LoginThrottle:
+    return SqlLoginThrottle(session)
+
+
+LoginThrottleDep = Annotated[LoginThrottle, Depends(get_login_throttle)]
 
 _BEARER_PREFIX = "Bearer "
 
