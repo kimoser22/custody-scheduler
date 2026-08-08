@@ -46,9 +46,13 @@ class EnvTwilioSmsGateway:
         self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         self.from_number = os.getenv("TWILIO_FROM_NUMBER")
         self.sent: list[tuple[str, str]] = []
+        # Last send outcome for callers that record delivery status without
+        # needing transient Twilio errors to raise (webhook must stay 200).
+        self.last_outcome: str = "sent"
 
     def send(self, to: str, body: str) -> None:
         self.sent.append((to, body))
+        self.last_outcome = "sent"
         if not (self.account_sid and self.auth_token and self.from_number):
             return
         # Optional live send — require twilio package only when configured.
@@ -66,6 +70,7 @@ class EnvTwilioSmsGateway:
                 # Actionable rather than transient: hand it to the gateway that
                 # owns the opt-out store so our list catches up with Twilio's.
                 raise RecipientOptedOutError(to) from None
+            self.last_outcome = "failed"
             _logger.warning(
                 "SMS send to %s failed: Twilio error %s (HTTP %s)",
                 to,
@@ -77,6 +82,7 @@ class EnvTwilioSmsGateway:
             # already claimed this message_sid, so raising would 500 the
             # webhook and Twilio's retry would be dropped as a duplicate —
             # losing the message entirely. Log and move on instead.
+            self.last_outcome = "failed"
             _logger.warning("SMS send to %s failed", to, exc_info=True)
 
     def send_forced(self, to: str, body: str) -> None:

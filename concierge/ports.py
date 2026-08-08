@@ -82,9 +82,11 @@ class OptOutAwareSmsGateway:
 
     inner: SmsGateway
     opt_outs: OptOutStore
+    last_outcome: str = "sent"
 
     def send(self, to: str, body: str) -> None:
         if self.opt_outs.is_opted_out(normalize_phone(to)):
+            self.last_outcome = "skipped_opt_out"
             return
         self._send_recording_opt_outs(self.inner.send, to, body)
 
@@ -96,10 +98,12 @@ class OptOutAwareSmsGateway:
     def _send_recording_opt_outs(self, send, to: str, body: str) -> None:
         try:
             send(to=to, body=body)
+            self.last_outcome = getattr(self.inner, "last_outcome", "sent")
         except RecipientOptedOutError:
             # Twilio's list knew something ours didn't. Catch up so the next
             # send is short-circuited here instead of rejected again.
             self.opt_outs.opt_out(to)
+            self.last_outcome = "skipped_opt_out"
 
 
 class IntentParser(Protocol):
@@ -184,9 +188,11 @@ class OverrideRepository(Protocol):
 @dataclass
 class FakeSmsGateway:
     sent: list[tuple[str, str]] = field(default_factory=list)
+    last_outcome: str = "sent"
 
     def send(self, to: str, body: str) -> None:
         self.sent.append((to, body))
+        self.last_outcome = "sent"
 
     def send_forced(self, to: str, body: str) -> None:
         self.send(to=to, body=body)

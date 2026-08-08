@@ -58,6 +58,36 @@ describe("OverrideForm", () => {
     });
   });
 
+  it("shows a soft notice when the other parent opted out of SMS", async () => {
+    const user = userEvent.setup();
+    const createOverride = vi.fn<CreateOverride>(async (override) => ({
+      ok: true,
+      data: {
+        ...override,
+        email_notify_status: "queued",
+        sms_notify_status: "skipped_opt_out",
+      },
+    }));
+
+    render(
+      <OverrideForm
+        initialDate="2026-01-15"
+        createOverride={createOverride}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Description"), "Holiday");
+    await user.click(screen.getByRole("button", { name: "Request holiday block" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "The other parent opted out of SMS; we emailed them instead.",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("posts end_date with the selected range", async () => {
     const user = userEvent.setup();
     const createOverride = vi.fn<CreateOverride>(async (override) => ({

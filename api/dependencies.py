@@ -8,7 +8,7 @@ from sqlmodel import Session
 from api.auth_tokens import TokenError, verify_token
 from api.email_notifier import SmtpEmailNotifier
 from concierge.adapters import EnvTwilioSmsGateway
-from concierge.ports import AuditRepository, OptOutAwareSmsGateway, SmsGateway
+from concierge.ports import AuditRepository, OptOutAwareSmsGateway, OptOutStore, SmsGateway
 from concierge.repos import SqlAuditRepository, SqlOptOutStore
 from core.notifications import Notifier
 from database.connection import get_session
@@ -22,6 +22,13 @@ def get_notifier() -> Notifier:
 
 
 NotifierDep = Annotated[Notifier, Depends(get_notifier)]
+
+
+def get_opt_out_store(session: SessionDep) -> OptOutStore:
+    return SqlOptOutStore(session)
+
+
+OptOutDep = Annotated[OptOutStore, Depends(get_opt_out_store)]
 
 
 def get_sms_gateway(session: SessionDep) -> SmsGateway:

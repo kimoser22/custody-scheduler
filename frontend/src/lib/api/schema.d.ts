@@ -367,7 +367,11 @@ export interface components {
             end_date?: string | null;
             /** Requested By Label */
             requested_by_label?: string | null;
+            email_notify_status?: components["schemas"]["NotifyStatus"] | null;
+            sms_notify_status?: components["schemas"]["NotifyStatus"] | null;
         };
+        /** NotifyStatus */
+        NotifyStatus: "queued" | "sent" | "failed" | "skipped_no_address" | "skipped_no_phone" | "skipped_opt_out" | "unconfigured";
         /** TokenRequest */
         TokenRequest: {
             /** User Id */

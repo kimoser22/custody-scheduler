@@ -184,6 +184,81 @@ def test_web_create_skips_sms_when_counterparty_has_no_phone(
     assert response.status_code == 200
     assert sms.sent == []
     assert len(notifier.sent) == 1
+    body = response.json()
+    assert body["sms_notify_status"] == "skipped_no_phone"
+    assert body["email_notify_status"] == "queued"
+
+
+def test_web_create_records_opt_out_and_sent_statuses(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    notifier: FakeNotifier,
+    sms: FakeSmsGateway,
+) -> None:
+    _seed_parents(session_fixture)
+    SqlOptOutStore(session_fixture).opt_out(PARENT_B_PHONE)
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sms_notify_status"] == "skipped_opt_out"
+    session_fixture.expire_all()
+    row = _pending_row(session_fixture)
+    assert row.sms_notify_status == "skipped_opt_out"
+    assert row.email_notify_status == "sent"
+
+
+def test_web_create_marks_channels_sent_after_background_delivery(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    notifier: FakeNotifier,
+    sms: FakeSmsGateway,
+) -> None:
+    _seed_parents(session_fixture)
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    # Response is serialized before background tasks finish updating.
+    assert response.json()["email_notify_status"] == "queued"
+    assert response.json()["sms_notify_status"] == "queued"
+    session_fixture.expire_all()
+    row = _pending_row(session_fixture)
+    assert row.email_notify_status == "sent"
+    assert row.sms_notify_status == "sent"
+
+
+def test_failed_email_notify_is_audited(
+    client_fixture: TestClient, session_fixture: Session
+) -> None:
+    class ExplodingNotifier:
+        last_outcome = "sent"
+
+        def send(self, *, to: str, subject: str, body: str) -> None:
+            raise RuntimeError("mail server down")
+
+    _seed_parents(session_fixture)
+    app.dependency_overrides[get_notifier] = lambda: ExplodingNotifier()
+    _act_as(101, "Parent A")
+
+    response = client_fixture.post(
+        "/api/v1/schedule/overrides", json=OVERRIDE_PAYLOAD
+    )
+
+    assert response.status_code == 200
+    session_fixture.expire_all()
+    row = _pending_row(session_fixture)
+    assert row.email_notify_status == "failed"
+    audits = session_fixture.exec(
+        select(AuditLogTable).where(AuditLogTable.action_type == "email_send_failed")
+    ).all()
+    assert len(audits) == 1
 
 
 def test_requester_is_never_emailed_about_their_own_request(
@@ -241,6 +316,7 @@ def test_notification_failure_does_not_fail_the_request(
 
     assert response.status_code == 200
     # The override is still persisted — the custody record is what matters.
+    session_fixture.expire_all()
     assert _pending_row(session_fixture).status == OverrideStatus.PENDING.value
 
 
@@ -256,6 +332,7 @@ def test_missing_recipient_address_is_not_an_error(
 
     assert response.status_code == 200
     assert notifier.sent == []
+    assert response.json()["email_notify_status"] == "skipped_no_address"
 
 
 # --- expired requests must not display as pending -----------------------------

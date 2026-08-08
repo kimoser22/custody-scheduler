@@ -1,6 +1,14 @@
 export type ParentRole = "Parent A" | "Parent B";
 export type OverrideType = "Holiday" | "Mutual Swap" | "Emergency";
 export type OverrideStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Expired";
+export type NotifyStatus =
+  | "queued"
+  | "sent"
+  | "failed"
+  | "skipped_no_address"
+  | "skipped_no_phone"
+  | "skipped_opt_out"
+  | "unconfigured";
 
 export interface ScheduleOverride {
   id?: number | null;
@@ -15,6 +23,8 @@ export interface ScheduleOverride {
   expires_at?: string | null;
   requested_by_user_id?: number | null;
   requested_by_label?: string | null;
+  email_notify_status?: NotifyStatus | null;
+  sms_notify_status?: NotifyStatus | null;
 }
 
 export interface DailyCustodyState {

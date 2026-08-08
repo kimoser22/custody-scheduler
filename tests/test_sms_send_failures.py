@@ -94,6 +94,7 @@ def test_transient_twilio_failure_is_swallowed(
         gateway.send(TO, BODY)  # must not raise
 
     assert gateway.sent == [(TO, BODY)]
+    assert gateway.last_outcome == "failed"
     assert any("20500" in record.getMessage() for record in caplog.records)
 
 

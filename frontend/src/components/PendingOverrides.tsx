@@ -12,6 +12,7 @@ import {
   formatOverrideRange,
   overrideTypeLabel,
 } from "@/lib/formatOverrideDisplay";
+import { formatNotifyStatus } from "@/lib/formatNotifyStatus";
 import type { ScheduleOverride } from "@/lib/types";
 
 interface PendingOverridesProps {
@@ -132,6 +133,12 @@ export function PendingOverrides({
               request.override_date,
               request.end_date,
             );
+            const notifyLine = isOwnRequest
+              ? formatNotifyStatus(
+                  request.email_notify_status,
+                  request.sms_notify_status,
+                )
+              : null;
 
             return (
               <li key={request.id} className="rounded border p-3 text-sm">
@@ -163,9 +170,12 @@ export function PendingOverrides({
                 ) : null}
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                   {isOwnRequest ? (
-                    <p className="mt-0.5 text-slate-600">
-                      Waiting for the other parent
-                    </p>
+                    <div className="mt-0.5 space-y-1 text-slate-600">
+                      <p>Waiting for the other parent</p>
+                      {notifyLine ? (
+                        <p className="text-xs text-slate-500">{notifyLine}</p>
+                      ) : null}
+                    </div>
                   ) : (
                     <>
                       <button
