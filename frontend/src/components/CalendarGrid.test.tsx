@@ -25,4 +25,28 @@ describe("CalendarGrid", () => {
     render(<CalendarGrid days={days} monthStartDate="2026-01-05" />);
     expect(screen.getAllByRole("gridcell")).toHaveLength(2);
   });
+
+  it("uses compact gaps and single-letter weekday headers on base viewport", () => {
+    const { container } = render(
+      <CalendarGrid days={days} monthStartDate="2026-01-05" />,
+    );
+    const grids = container.querySelectorAll(".grid.grid-cols-7");
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) {
+      expect(grid.className).toMatch(/\bgap-1\b/);
+    }
+    expect(screen.getByText("Sun")).toBeInTheDocument();
+    expect(screen.getByText("Mon")).toBeInTheDocument();
+    const shortLabels = container.querySelectorAll(".sm\\:hidden");
+    expect(shortLabels).toHaveLength(7);
+    expect([...shortLabels].map((el) => el.textContent)).toEqual([
+      "S",
+      "M",
+      "T",
+      "W",
+      "T",
+      "F",
+      "S",
+    ]);
+  });
 });
