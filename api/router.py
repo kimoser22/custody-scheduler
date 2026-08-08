@@ -26,6 +26,7 @@ from core.notifications import (
 from concierge.ports import OptOutAwareSmsGateway, OptOutStore, SmsGateway
 from concierge.repos import SqlAuditRepository, SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
+from core.clock import household_today
 from core.engine import calculate_schedule
 from core.export import build_family_export
 from core.ics import build_custody_ics
@@ -353,7 +354,8 @@ def export_family_records(
         )
     payload = build_family_export(session, user.family_id)
     body = json.dumps(payload, indent=2, sort_keys=False)
-    today = datetime.now(timezone.utc).date().isoformat()
+    # Local date so the filename matches the day the user pressed the button.
+    today = household_today().isoformat()
     return Response(
         content=body,
         media_type="application/json",
@@ -386,7 +388,9 @@ def get_calendar_feed(
             detail="Invalid calendar feed token.",
         )
 
-    today = datetime.now(timezone.utc).date()
+    # Anchored locally: a UTC "today" slides the whole window a day early every
+    # evening, so a subscribed calendar would disagree with the web app.
+    today = household_today()
     start_date = today - timedelta(days=FEED_PAST_DAYS)
     end_date = today + timedelta(days=FEED_FUTURE_DAYS)
     days = calculate_schedule(
