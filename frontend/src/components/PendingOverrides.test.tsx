@@ -78,9 +78,16 @@ describe("PendingOverrides", () => {
     expect(screen.getByText("Winter trip")).toBeInTheDocument();
   });
 
-  it("calls sweep-expired before loading pending requests", async () => {
-    const sweepExpiredOverrides = vi.fn<SweepExpiredOverrides>(async () => undefined);
-    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => []);
+  it("loads pending requests without waiting on the sweep", async () => {
+    // The sweep is a maintenance write, not a display precondition (the server
+    // already filters expired requests). A hung sweep must not delay the list.
+    const neverResolves = new Promise<void>(() => {});
+    const sweepExpiredOverrides = vi.fn<SweepExpiredOverrides>(
+      () => neverResolves,
+    );
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
+      PENDING_OVERRIDE,
+    ]);
 
     render(
       <PendingOverrides
@@ -91,10 +98,54 @@ describe("PendingOverrides", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(sweepExpiredOverrides).toHaveBeenCalled();
-    });
+    // The list renders even though the sweep never settles.
+    await waitFor(() =>
+      expect(screen.getByText("Take the kids to grandma's")).toBeInTheDocument(),
+    );
     expect(fetchPendingOverrides).toHaveBeenCalled();
+  });
+
+  it("loads for a Viewer with no sweep function and attempts no sweep", async () => {
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
+      PENDING_OVERRIDE,
+    ]);
+
+    render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={2}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Take the kids to grandma's")).toBeInTheDocument(),
+    );
+    expect(fetchPendingOverrides).toHaveBeenCalledTimes(1);
+  });
+
+  it("refetches when refreshSignal changes without remounting", async () => {
+    const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => []);
+
+    const { rerender } = render(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={102}
+        refreshSignal={0}
+      />,
+    );
+    await waitFor(() => expect(fetchPendingOverrides).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <PendingOverrides
+        fetchPendingOverrides={fetchPendingOverrides}
+        decideOverride={vi.fn()}
+        currentUserId={102}
+        refreshSignal={1}
+      />,
+    );
+    await waitFor(() => expect(fetchPendingOverrides).toHaveBeenCalledTimes(2));
   });
 
   it("hides Approve and Reject on your own requests", async () => {
