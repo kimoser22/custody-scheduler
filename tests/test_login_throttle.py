@@ -3,24 +3,21 @@
 The endpoint is public and guards custody data, so repeated wrong passcodes
 must stop being free. Lockout is per user id and short-lived: a stranger can
 briefly lock a parent out, but gains nothing by it and it self-heals.
-"""
 
-from datetime import datetime, timedelta, timezone
+Lock semantics (thresholds, expiry, per-user isolation) are covered against the
+throttle directly in test_login_throttle_persistence.py; this file is about what
+the endpoint does with them.
+"""
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from api.login_throttle import (
-    LOCKOUT_WINDOW,
-    MAX_CONSECUTIVE_FAILURES,
-    LoginThrottle,
-)
+from api.login_throttle import MAX_CONSECUTIVE_FAILURES
 from api.passcodes import hash_passcode
 from database.schema import UserTable
 
 PASSCODE = "river-otter-42"
-START = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc).replace(tzinfo=None)
 
 
 @pytest.fixture(name="parent")
@@ -41,52 +38,6 @@ def _login(client: TestClient, passcode: str, user_id: int = 101):
     return client.post(
         "/api/v1/auth/token", json={"user_id": user_id, "passcode": passcode}
     )
-
-
-# --- the throttle itself (pure, clock injected) -------------------------------
-
-
-def test_allows_attempts_below_the_threshold() -> None:
-    throttle = LoginThrottle()
-    for _ in range(MAX_CONSECUTIVE_FAILURES - 1):
-        throttle.record_failure(101, now=START)
-    assert throttle.locked_until(101, now=START) is None
-
-
-def test_locks_after_consecutive_failures() -> None:
-    throttle = LoginThrottle()
-    for _ in range(MAX_CONSECUTIVE_FAILURES):
-        throttle.record_failure(101, now=START)
-    assert throttle.locked_until(101, now=START) == START + LOCKOUT_WINDOW
-
-
-def test_lock_expires_after_the_window() -> None:
-    throttle = LoginThrottle()
-    for _ in range(MAX_CONSECUTIVE_FAILURES):
-        throttle.record_failure(101, now=START)
-
-    later = START + LOCKOUT_WINDOW + timedelta(seconds=1)
-    assert throttle.locked_until(101, now=later) is None
-
-
-def test_success_resets_the_counter() -> None:
-    throttle = LoginThrottle()
-    for _ in range(MAX_CONSECUTIVE_FAILURES - 1):
-        throttle.record_failure(101, now=START)
-    throttle.record_success(101)
-
-    throttle.record_failure(101, now=START)
-    assert throttle.locked_until(101, now=START) is None
-
-
-def test_lock_is_per_user() -> None:
-    """One parent locking out must never lock the other out of the calendar."""
-    throttle = LoginThrottle()
-    for _ in range(MAX_CONSECUTIVE_FAILURES):
-        throttle.record_failure(101, now=START)
-
-    assert throttle.locked_until(101, now=START) is not None
-    assert throttle.locked_until(102, now=START) is None
 
 
 # --- endpoint behavior --------------------------------------------------------
