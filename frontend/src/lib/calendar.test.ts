@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { formatLocalDate, getMonthRange, shiftMonth } from "@/lib/calendar";
+import { formatLocalDate, getMonthRange, localTodayDate, shiftMonth } from "@/lib/calendar";
 
 describe("calendar helpers", () => {
   it("formats local dates as YYYY-MM-DD without UTC shifting", () => {
     expect(formatLocalDate(new Date(2026, 6, 15))).toBe("2026-07-15");
+  });
+
+  it("returns local today without UTC shifting", () => {
+    expect(localTodayDate(new Date(2026, 7, 7, 23, 30))).toBe("2026-08-07");
   });
 
   it("returns the first and last day of the reference month", () => {

@@ -49,4 +49,18 @@ describe("CalendarGrid", () => {
       "S",
     ]);
   });
+
+  it("marks only the matching todayDate cell", () => {
+    render(
+      <CalendarGrid
+        days={days}
+        monthStartDate="2026-01-05"
+        todayDate="2026-01-06"
+      />,
+    );
+    const today = screen.getByRole("gridcell", { name: /2026-01-06/i });
+    const other = screen.getByRole("gridcell", { name: /2026-01-05/i });
+    expect(today).toHaveAttribute("data-today", "true");
+    expect(other).toHaveAttribute("data-today", "false");
+  });
 });

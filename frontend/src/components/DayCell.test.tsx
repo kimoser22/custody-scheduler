@@ -111,4 +111,48 @@ describe("DayCell", () => {
     await user.click(screen.getByRole("gridcell"));
     expect(onSelect).toHaveBeenCalledWith(baseDay);
   });
+
+  it("marks today with data-today and aria", () => {
+    render(<DayCell day={baseDay} isToday />);
+    const cell = screen.getByRole("gridcell");
+    expect(cell).toHaveAttribute("data-today", "true");
+    expect(cell.className).toMatch(/border-slate-800/);
+    expect(
+      screen.getByRole("gridcell", { name: /2026-01-05.*Parent A.*today/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not mark non-today cells as today", () => {
+    render(<DayCell day={baseDay} />);
+    expect(screen.getByRole("gridcell")).toHaveAttribute("data-today", "false");
+    expect(
+      screen.queryByRole("gridcell", { name: /today/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps override ring when today is overridden", () => {
+    render(
+      <DayCell
+        isToday
+        day={{
+          ...baseDay,
+          is_overridden: true,
+          final_parent: PARENT_B,
+          override_details: {
+            override_date: "2026-01-05",
+            assigned_parent: PARENT_B,
+            override_type: "Holiday",
+            description: "Holiday",
+            is_active: true,
+            status: "Approved",
+          },
+        }}
+      />,
+    );
+    const cell = screen.getByRole("gridcell");
+    expect(cell).toHaveAttribute("data-today", "true");
+    expect(cell).toHaveAttribute("data-overridden", "true");
+    expect(cell.className).toMatch(/ring-amber-500/);
+    expect(cell.className).toMatch(/border-slate-800/);
+  });
 });

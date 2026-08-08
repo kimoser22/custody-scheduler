@@ -5,6 +5,11 @@ export function formatLocalDate(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Local calendar “today” as YYYY-MM-DD (not UTC). */
+export function localTodayDate(now: Date = new Date()): string {
+  return formatLocalDate(now);
+}
+
 export function getMonthRange(reference = new Date()) {
   const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
   const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);
