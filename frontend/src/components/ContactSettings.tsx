@@ -87,7 +87,8 @@ export function ContactSettings({ fetchMe, updateMe }: ContactSettingsProps) {
     <form onSubmit={handleSubmit} className="space-y-3 rounded border p-4">
       <h2 className="text-lg font-semibold">Contact settings</h2>
       <p className="text-sm text-slate-600">
-        SMS uses your phone number; override emails go to this address.
+        SMS uses your phone number; override emails go to this address. Text
+        STOP to opt out of SMS; START to resume.
       </p>
       <label className="block text-sm">
         Phone

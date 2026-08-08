@@ -22,9 +22,11 @@ class FakeNotifier:
     """Records messages instead of sending them (tests, local dev)."""
 
     sent: list[tuple[str, str, str]] = field(default_factory=list)
+    last_outcome: str = "sent"
 
     def send(self, *, to: str, subject: str, body: str) -> None:
         self.sent.append((to, subject, body))
+        self.last_outcome = "sent"
 
 
 def format_override_dates(start: date, end: date | None = None) -> str:

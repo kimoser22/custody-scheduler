@@ -11,6 +11,7 @@ from api.dependencies import (
     AuditDep,
     CurrentUser,
     NotifierDep,
+    OptOutDep,
     SessionDep,
     SmsDep,
     get_current_user,
@@ -22,7 +23,8 @@ from core.notifications import (
     override_requested_email,
     override_requested_sms,
 )
-from concierge.ports import SmsGateway
+from concierge.ports import OptOutAwareSmsGateway, OptOutStore, SmsGateway
+from concierge.repos import SqlAuditRepository, SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
 from core.engine import calculate_schedule
 from core.export import build_family_export
@@ -30,6 +32,7 @@ from core.ics import build_custody_ics
 from core.models import (
     BaselineSchedule,
     DailyCustodyState,
+    NotifyStatus,
     OverrideDecisionRequest,
     OverrideStatus,
     OverrideType,
@@ -38,6 +41,7 @@ from core.models import (
 )
 from core.ranges import MAX_RANGE_DAYS
 from database.activation import activate_override
+from database.connection import engine
 from database.schema import BaselineTable, OverrideTable, UserTable
 
 _logger = logging.getLogger(__name__)
@@ -101,6 +105,14 @@ def _to_domain(
         expires_at=row.expires_at,
         requested_by_user_id=row.requested_by_user_id,
         requested_by_label=requested_by_label,
+        email_notify_status=(
+            NotifyStatus(row.email_notify_status)
+            if row.email_notify_status
+            else None
+        ),
+        sms_notify_status=(
+            NotifyStatus(row.sms_notify_status) if row.sms_notify_status else None
+        ),
     )
 
 
@@ -126,14 +138,79 @@ def _label(user: UserTable | None, fallback: str) -> str:
     return user.custody_label
 
 
-def _send_safely(notifier: Notifier, to: str, subject: str, body: str) -> None:
+def _parse_notify_status(value: str) -> NotifyStatus:
+    try:
+        return NotifyStatus(value)
+    except ValueError:
+        return NotifyStatus.FAILED
+
+
+def _set_notify_status(
+    session: Session,
+    override_id: int,
+    *,
+    email_status: NotifyStatus | None = None,
+    sms_status: NotifyStatus | None = None,
+) -> None:
+    row = session.get(OverrideTable, override_id)
+    if row is None:
+        return
+    if email_status is not None:
+        row.email_notify_status = email_status.value
+    if sms_status is not None:
+        row.sms_notify_status = sms_status.value
+    session.add(row)
+
+
+def _resolve_email_plan(counterparty: UserTable | None) -> tuple[NotifyStatus, str | None]:
+    if counterparty is None or not counterparty.email:
+        return NotifyStatus.SKIPPED_NO_ADDRESS, None
+    return NotifyStatus.QUEUED, counterparty.email
+
+
+def _resolve_sms_plan(
+    counterparty: UserTable | None, opt_outs: OptOutStore
+) -> tuple[NotifyStatus, str | None]:
+    if counterparty is None or not counterparty.phone:
+        return NotifyStatus.SKIPPED_NO_PHONE, None
+    if opt_outs.is_opted_out(counterparty.phone):
+        return NotifyStatus.SKIPPED_OPT_OUT, None
+    return NotifyStatus.QUEUED, counterparty.phone
+
+
+def _send_email_safely(
+    notifier: Notifier,
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    override_id: int,
+    family_id: int,
+) -> None:
     """Runs in a background task. A notification is a side effect of a custody
     decision, never a precondition — no failure here may surface to the caller
     or bring down the worker."""
+    outcome = NotifyStatus.FAILED
     try:
         notifier.send(to=to, subject=subject, body=body)
+        outcome = _parse_notify_status(getattr(notifier, "last_outcome", "sent"))
     except Exception:  # noqa: BLE001 — deliberately last-resort
         _logger.warning("Notification to %s failed", to, exc_info=True)
+        outcome = NotifyStatus.FAILED
+
+    with Session(engine) as session:
+        _set_notify_status(session, override_id, email_status=outcome)
+        if outcome == NotifyStatus.FAILED:
+            SqlAuditRepository(session).append(
+                family_id=family_id,
+                actor_role="system",
+                action_type="email_send_failed",
+                description=f"Email notify failed for override {override_id} to {to}",
+                previous_state_id=override_id,
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        else:
+            session.commit()
 
 
 def _queue_email(
@@ -143,20 +220,70 @@ def _queue_email(
     to: str | None,
     subject: str,
     body: str,
+    override_id: int | None = None,
+    family_id: int | None = None,
 ) -> None:
     """Schedule a notification. The recipient address and the full message must
     already be resolved: the request-scoped DB session is closed by the time the
     background task runs, so no ORM object may cross this boundary."""
     if not to:
         return
-    background_tasks.add_task(_send_safely, notifier, to, subject, body)
+    if override_id is not None and family_id is not None:
+        background_tasks.add_task(
+            _send_email_safely,
+            notifier,
+            to,
+            subject,
+            body,
+            override_id=override_id,
+            family_id=family_id,
+        )
+        return
+    background_tasks.add_task(_send_email_legacy, notifier, to, subject, body)
 
 
-def _send_sms_safely(sms: SmsGateway, to: str, body: str) -> None:
+def _send_email_legacy(notifier: Notifier, to: str, subject: str, body: str) -> None:
     try:
-        sms.send(to=to, body=body)
+        notifier.send(to=to, subject=subject, body=body)
     except Exception:  # noqa: BLE001 — deliberately last-resort
-        _logger.warning("SMS to %s failed", to, exc_info=True)
+        _logger.warning("Notification to %s failed", to, exc_info=True)
+
+
+def _send_sms_safely(
+    sms: SmsGateway,
+    to: str,
+    body: str,
+    *,
+    override_id: int,
+    family_id: int,
+) -> None:
+    outcome = NotifyStatus.FAILED
+    with Session(engine) as session:
+        send_gateway: SmsGateway = sms
+        if isinstance(sms, OptOutAwareSmsGateway):
+            # Fresh opt-out session — request session is closed by now.
+            send_gateway = OptOutAwareSmsGateway(sms.inner, SqlOptOutStore(session))
+        try:
+            send_gateway.send(to=to, body=body)
+            outcome = _parse_notify_status(
+                getattr(send_gateway, "last_outcome", "sent")
+            )
+        except Exception:  # noqa: BLE001 — deliberately last-resort
+            _logger.warning("SMS to %s failed", to, exc_info=True)
+            outcome = NotifyStatus.FAILED
+
+        _set_notify_status(session, override_id, sms_status=outcome)
+        if outcome == NotifyStatus.FAILED:
+            SqlAuditRepository(session).append(
+                family_id=family_id,
+                actor_role="system",
+                action_type="sms_send_failed",
+                description=f"SMS notify failed for override {override_id} to {to}",
+                previous_state_id=override_id,
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        else:
+            session.commit()
 
 
 def _queue_sms(
@@ -165,10 +292,19 @@ def _queue_sms(
     *,
     to: str | None,
     body: str,
+    override_id: int,
+    family_id: int,
 ) -> None:
     if not to:
         return
-    background_tasks.add_task(_send_sms_safely, sms, to, body)
+    background_tasks.add_task(
+        _send_sms_safely,
+        sms,
+        to,
+        body,
+        override_id=override_id,
+        family_id=family_id,
+    )
 
 
 def _load_overrides(session: Session, family_id: int) -> list[ScheduleOverride]:
@@ -319,6 +455,7 @@ def create_override(
     session: SessionDep,
     notifier: NotifierDep,
     sms: SmsDep,
+    opt_outs: OptOutDep,
     audit: AuditDep,
     current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> ScheduleOverride:
@@ -367,6 +504,15 @@ def create_override(
 
     counterparty = _other_parent(session, current_user.family_id, current_user.id)
     requester_label = _label(_user(session, current_user.id), current_user.role)
+    email_status, email_to = _resolve_email_plan(counterparty)
+    sms_status, sms_to = _resolve_sms_plan(counterparty, opt_outs)
+    row.email_notify_status = email_status.value
+    row.sms_notify_status = sms_status.value
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+
+    assert row.id is not None
     subject, body = override_requested_email(
         requester_label=requester_label,
         override_date=row.override_date,
@@ -378,22 +524,23 @@ def create_override(
     _queue_email(
         background_tasks,
         notifier,
-        to=counterparty.email if counterparty else None,
+        to=email_to,
         subject=subject,
         body=body,
+        override_id=row.id,
+        family_id=current_user.family_id,
     )
-
-    # Opt-out suppression is enforced by the gateway itself (see
-    # api.dependencies.get_sms_gateway), so no check is needed here.
     _queue_sms(
         background_tasks,
         sms,
-        to=counterparty.phone if counterparty else None,
+        to=sms_to,
         body=override_requested_sms(
             requester_label=requester_label,
             override_date=row.override_date,
             end_date=row.end_date,
         ),
+        override_id=row.id,
+        family_id=current_user.family_id,
     )
     return _to_domain(row)
 

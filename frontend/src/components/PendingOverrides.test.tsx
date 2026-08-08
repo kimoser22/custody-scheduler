@@ -99,7 +99,11 @@ describe("PendingOverrides", () => {
 
   it("hides Approve and Reject on your own requests", async () => {
     const fetchPendingOverrides: FetchPendingOverrides = vi.fn(async () => [
-      PENDING_OVERRIDE,
+      {
+        ...PENDING_OVERRIDE,
+        email_notify_status: "sent",
+        sms_notify_status: "skipped_opt_out",
+      },
     ]);
 
     render(
@@ -116,6 +120,9 @@ describe("PendingOverrides", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
     expect(screen.getByText("Waiting for the other parent")).toBeInTheDocument();
+    expect(
+      screen.getByText("Emailed · SMS skipped (opted out)"),
+    ).toBeInTheDocument();
   });
 
   it("shows Approve and Reject for requests from the other parent", async () => {

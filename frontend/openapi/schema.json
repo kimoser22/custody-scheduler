@@ -1035,6 +1035,26 @@
               }
             ],
             "title": "Requested By Label"
+          },
+          "email_notify_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotifyStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sms_notify_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotifyStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1045,6 +1065,19 @@
           "description"
         ],
         "title": "ScheduleOverride"
+      },
+      "NotifyStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "sent",
+          "failed",
+          "skipped_no_address",
+          "skipped_no_phone",
+          "skipped_opt_out",
+          "unconfigured"
+        ],
+        "title": "NotifyStatus"
       },
       "TokenRequest": {
         "properties": {

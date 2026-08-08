@@ -64,6 +64,9 @@ class OverrideTable(SQLModel, table=True):
     decided_by_user_id: int | None = None
     decided_at: datetime | None = None
     expires_at: datetime
+    # Counterparty notify outcomes for the create-path ping (nullable legacy).
+    email_notify_status: str | None = None
+    sms_notify_status: str | None = None
 
 
 class AuditLogTable(SQLModel, table=True):

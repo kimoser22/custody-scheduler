@@ -100,6 +100,26 @@ def ensure_calendar_feed_token_column(engine_to_patch) -> None:
         connection.commit()
 
 
+def ensure_override_notify_status_columns(engine_to_patch) -> None:
+    """Add overrides.*_notify_status on databases created before delivery tracking."""
+    with engine_to_patch.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(overrides)")
+        }
+        if not columns:
+            return
+        if "email_notify_status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE overrides ADD COLUMN email_notify_status VARCHAR"
+            )
+        if "sms_notify_status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE overrides ADD COLUMN sms_notify_status VARCHAR"
+            )
+        connection.commit()
+
+
 def ensure_active_day_rows(engine_to_patch) -> None:
     """Backfill active_custody_days for overrides activated before the table
     existed (create_all adds the empty table; this reconstructs its rows).
@@ -227,6 +247,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ensure_user_email_column(engine)
     ensure_override_end_date_column(engine)
     ensure_calendar_feed_token_column(engine)
+    ensure_override_notify_status_columns(engine)
     ensure_active_day_rows(engine)
     with Session(engine) as session:
         try:

@@ -92,6 +92,13 @@ def _auth_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_SIGNING_SECRET", "test-signing-secret")
 
 
+@pytest.fixture(autouse=True)
+def _notify_background_uses_test_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Background notify status writers open a fresh Session on api.router.engine.
+    Point that at the in-memory test engine so status updates hit the same DB."""
+    monkeypatch.setattr("api.router.engine", engine)
+
+
 @pytest.fixture(name="session_fixture")
 def _session_fixture() -> Generator[Session, None, None]:
     SQLModel.metadata.create_all(engine)

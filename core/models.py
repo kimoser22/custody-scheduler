@@ -23,6 +23,18 @@ class OverrideStatus(StrEnum):
     EXPIRED = "Expired"
 
 
+class NotifyStatus(StrEnum):
+    """Delivery outcome for email/SMS about an override request."""
+
+    QUEUED = "queued"
+    SENT = "sent"
+    FAILED = "failed"
+    SKIPPED_NO_ADDRESS = "skipped_no_address"
+    SKIPPED_NO_PHONE = "skipped_no_phone"
+    SKIPPED_OPT_OUT = "skipped_opt_out"
+    UNCONFIGURED = "unconfigured"
+
+
 class BaselineSchedule(BaseModel):
     model_config = {"frozen": True}
 
@@ -46,6 +58,9 @@ class ScheduleOverride(BaseModel):
     end_date: date | None = None
     # Populated for pending-list responses; not required for engine matching.
     requested_by_label: str | None = None
+    # Delivery outcomes for the counterparty ping on create (nullable legacy rows).
+    email_notify_status: NotifyStatus | None = None
+    sms_notify_status: NotifyStatus | None = None
 
 
 class DailyCustodyState(BaseModel):

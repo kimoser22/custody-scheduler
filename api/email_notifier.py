@@ -34,6 +34,7 @@ class SmtpEmailNotifier:
         self.password = os.getenv("SMTP_PASSWORD")
         self.from_address = os.getenv("SMTP_FROM")
         self.sent: list[tuple[str, str, str]] = []
+        self.last_outcome: str = "sent"
 
     def _is_configured(self) -> bool:
         return all(
@@ -42,6 +43,7 @@ class SmtpEmailNotifier:
 
     def send(self, *, to: str, subject: str, body: str) -> None:
         self.sent.append((to, subject, body))
+        self.last_outcome = "sent"
         if not self._is_configured():
             return
 
@@ -61,4 +63,5 @@ class SmtpEmailNotifier:
         except (smtplib.SMTPException, OSError, ValueError):
             # Log and move on: the override is already committed and matters
             # more than the notification about it.
+            self.last_outcome = "failed"
             _logger.warning("Failed to send notification email to %s", to, exc_info=True)

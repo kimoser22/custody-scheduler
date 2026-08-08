@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import type { CreateOverride } from "@/lib/api/schedule";
+import { formatNotifyCreateNotice } from "@/lib/formatNotifyStatus";
 import type { OverrideType, ParentRole } from "@/lib/types";
 import { PARENT_A, PARENT_B } from "@/lib/types";
 
@@ -24,6 +25,7 @@ export function OverrideForm({
   const [overrideType, setOverrideType] = useState<OverrideType>("Holiday");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const rangeLabel =
@@ -45,6 +47,7 @@ export function OverrideForm({
     event.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setNotice(null);
 
     if (endDate < initialDate) {
       setIsSubmitting(false);
@@ -69,6 +72,12 @@ export function OverrideForm({
       return;
     }
 
+    setNotice(
+      formatNotifyCreateNotice(
+        result.data.email_notify_status,
+        result.data.sms_notify_status,
+      ),
+    );
     onSuccess?.();
   }
 
@@ -125,6 +134,7 @@ export function OverrideForm({
         />
       </label>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {notice ? <p className="text-sm text-amber-800">{notice}</p> : null}
       <button
         type="submit"
         disabled={isSubmitting}
