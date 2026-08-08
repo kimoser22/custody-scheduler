@@ -134,7 +134,14 @@ describe("PendingOverrides", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const reject = screen.getByRole("button", { name: "Reject" });
+    expect(approve).toBeEnabled();
+    expect(reject).toBeEnabled();
+    expect(approve.className).toMatch(/min-h-11/);
+    expect(reject.className).toMatch(/min-h-11/);
+    expect(approve.className).toMatch(/w-full/);
+    expect(reject.className).toMatch(/w-full/);
   });
 
   it("shows a placeholder when there are no pending requests", async () => {

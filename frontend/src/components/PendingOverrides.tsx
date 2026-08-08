@@ -161,9 +161,11 @@ export function PendingOverrides({
                     {formatExpiryLabel(request.expires_at)}
                   </div>
                 ) : null}
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                   {isOwnRequest ? (
-                    <p className="text-slate-600">Waiting for the other parent</p>
+                    <p className="mt-0.5 text-slate-600">
+                      Waiting for the other parent
+                    </p>
                   ) : (
                     <>
                       <button
@@ -172,7 +174,7 @@ export function PendingOverrides({
                         onClick={() =>
                           request.id != null && handleDecision(request.id, true)
                         }
-                        className="rounded bg-emerald-600 px-3 py-1 text-white disabled:opacity-50"
+                        className="min-h-11 w-full rounded bg-emerald-600 px-4 py-2 text-base text-white disabled:opacity-50 sm:w-auto"
                       >
                         Approve
                       </button>
@@ -182,7 +184,7 @@ export function PendingOverrides({
                         onClick={() =>
                           request.id != null && handleDecision(request.id, false)
                         }
-                        className="rounded bg-red-600 px-3 py-1 text-white disabled:opacity-50"
+                        className="min-h-11 w-full rounded bg-red-600 px-4 py-2 text-base text-white disabled:opacity-50 sm:w-auto"
                       >
                         Reject
                       </button>
