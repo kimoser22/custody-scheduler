@@ -65,6 +65,27 @@ export function PendingOverrides({
     void refetch();
   }, [refetch]);
 
+  // Background notify writers flip queued → sent/failed after the first paint.
+  // Quietly re-poll once so the requester sees the delivery line without a reload.
+  useEffect(() => {
+    const stillQueued = requests.some(
+      (request) =>
+        request.email_notify_status === "queued" ||
+        request.sms_notify_status === "queued",
+    );
+    if (!stillQueued) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void fetchPendingOverrides()
+        .then((result) => setRequests(result))
+        .catch(() => {
+          // Best-effort refresh; the next navigation still shows truth.
+        });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [requests, fetchPendingOverrides]);
+
   async function handleDecision(overrideId: number, approve: boolean) {
     setPendingDecisionId(overrideId);
     setDecisionErrors((previous) => {
