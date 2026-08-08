@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { HouseholdAuthBar } from "@/components/HouseholdAuthBar";
 import { CalendarGrid } from "@/components/CalendarGrid";
@@ -44,7 +44,7 @@ export default function SchedulePage() {
   const todayDate = localTodayDate();
   const [session, setSession] = useState<Session | null>(null);
   const authToken = session?.token ?? null;
-  const { days, isLoading, error, refetch } = useSchedule({
+  const { days, isLoading, error, refetch, prefetch } = useSchedule({
     startDate,
     endDate,
     authToken,
@@ -57,6 +57,16 @@ export default function SchedulePage() {
     ? days.find((day) => day.current_date === todayDate)
     : undefined;
   const viewingOtherMonth = !isLoading && !error && todayCustody == null;
+
+  // Warm the neighboring months once the current one has data, so Previous /
+  // Next render instantly from cache instead of flashing a spinner.
+  useEffect(() => {
+    if (!authToken || isLoading) {
+      return;
+    }
+    void prefetch(getMonthRange(shiftMonth(monthReference, -1)));
+    void prefetch(getMonthRange(shiftMonth(monthReference, 1)));
+  }, [authToken, isLoading, monthReference, prefetch]);
 
   function handleAuthChange() {
     setSession(getSession());
@@ -189,10 +199,15 @@ export default function SchedulePage() {
       {authToken ? (
         <div className="mt-6">
           <PendingOverrides
-            key={`${authToken}-${pendingListVersion}`}
+            key={authToken}
+            refreshSignal={pendingListVersion}
             fetchPendingOverrides={fetchPendingOverridesRequest}
             decideOverride={decideOverrideRequest}
-            sweepExpiredOverrides={sweepExpiredOverridesRequest}
+            sweepExpiredOverrides={
+              canRequestOverride(session)
+                ? sweepExpiredOverridesRequest
+                : undefined
+            }
             currentUserId={currentUserId}
             onDecided={() => void refetch()}
           />

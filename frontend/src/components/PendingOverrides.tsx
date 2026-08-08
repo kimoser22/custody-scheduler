@@ -21,6 +21,9 @@ interface PendingOverridesProps {
   currentUserId: number | null;
   sweepExpiredOverrides?: SweepExpiredOverrides;
   onDecided?: () => void;
+  /** Bump to re-read the list in place (e.g. after an override is created)
+   *  instead of remounting the component. */
+  refreshSignal?: number;
 }
 
 export function PendingOverrides({
@@ -29,6 +32,7 @@ export function PendingOverrides({
   currentUserId,
   sweepExpiredOverrides,
   onDecided,
+  refreshSignal = 0,
 }: PendingOverridesProps) {
   const [requests, setRequests] = useState<ScheduleOverride[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,13 +45,6 @@ export function PendingOverrides({
     setIsLoading(true);
     setError(null);
     try {
-      if (sweepExpiredOverrides) {
-        try {
-          await sweepExpiredOverrides();
-        } catch {
-          // Sweep is best-effort; pending list still loads.
-        }
-      }
       const result = await fetchPendingOverrides();
       setRequests(result);
     } catch (loadError) {
@@ -59,11 +56,25 @@ export function PendingOverrides({
     } finally {
       setIsLoading(false);
     }
-  }, [fetchPendingOverrides, sweepExpiredOverrides]);
+  }, [fetchPendingOverrides]);
 
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+  }, [refetch, refreshSignal]);
+
+  // Persisting expired->Expired status is maintenance, not a display
+  // precondition: the server already filters expired requests from this list.
+  // Fire it once, fully decoupled from the read, so it never adds a round trip
+  // to the load. The page only passes this for Parents, so Viewers never hit
+  // the Parent-only endpoint (no guaranteed 403).
+  useEffect(() => {
+    if (!sweepExpiredOverrides) {
+      return;
+    }
+    void sweepExpiredOverrides().catch(() => {
+      // Best-effort; the list is already correct without it.
+    });
+  }, [sweepExpiredOverrides]);
 
   // Background notify writers flip queued → sent/failed after the first paint.
   // Quietly re-poll once so the requester sees the delivery line without a reload.
