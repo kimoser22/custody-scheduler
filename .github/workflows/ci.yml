@@ -1,0 +1,68 @@
+# Tests gate the deploy. Before this, `flyctl deploy` ran directly on every push
+# to master, so the whole test suite protected a laptop and nothing else — a
+# broken merge reached the family app unverified.
+#
+# The deploy job depends on both test jobs, so a red master never ships. Test
+# jobs also run on pull requests, where deploy is skipped.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# Supersede an in-flight run when a PR is pushed again. Never cancel on master:
+# that could kill a deploy midway.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # matches Dockerfile (python:3.12-slim)
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest tests/ -q
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test
+      # `build` runs generate:api first, which reads the committed
+      # openapi/schema.json unless API_OPENAPI_URL is set — no API needed.
+      # NEXT_PUBLIC_API_URL is unset here, so this builds the same-origin CSP
+      # rather than Vercel's; it proves the build compiles, not that production
+      # headers match.
+      - run: npm run build
+
+  deploy:
+    name: Deploy app
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    concurrency: deploy-group # only one deploy at a time
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
