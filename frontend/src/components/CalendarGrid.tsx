@@ -4,6 +4,7 @@ import type { DailyCustodyState } from "@/lib/types";
 interface CalendarGridProps {
   days: DailyCustodyState[];
   monthStartDate: string;
+  todayDate?: string;
   onDaySelect?: (day: DailyCustodyState) => void;
 }
 
@@ -25,6 +26,7 @@ function leadingBlankCount(monthStartDate: string): number {
 export function CalendarGrid({
   days,
   monthStartDate,
+  todayDate,
   onDaySelect,
 }: CalendarGridProps) {
   const blanks = leadingBlankCount(monthStartDate);
@@ -48,7 +50,12 @@ export function CalendarGrid({
           />
         ))}
         {days.map((day) => (
-          <DayCell key={day.current_date} day={day} onSelect={onDaySelect} />
+          <DayCell
+            key={day.current_date}
+            day={day}
+            isToday={todayDate != null && day.current_date === todayDate}
+            onSelect={onDaySelect}
+          />
         ))}
       </div>
     </div>

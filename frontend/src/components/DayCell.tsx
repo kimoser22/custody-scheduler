@@ -4,6 +4,7 @@ import { dayOfMonthLabel, shortParentLabel } from "@/lib/formatOverrideDisplay";
 
 interface DayCellProps {
   day: DailyCustodyState;
+  isToday?: boolean;
   onSelect?: (day: DailyCustodyState) => void;
 }
 
@@ -23,13 +24,15 @@ export function overrideBadgeLabel(day: DailyCustodyState): string {
   return details.override_type;
 }
 
-export function DayCell({ day, onSelect }: DayCellProps) {
+export function DayCell({ day, isToday = false, onSelect }: DayCellProps) {
   const parentClass =
     day.final_parent === PARENT_A ? "parent-a" : "parent-b";
   const badge = day.is_overridden ? overrideBadgeLabel(day) : null;
   const dayNumber = dayOfMonthLabel(day.current_date);
   const shortParent = shortParentLabel(day.final_parent);
-  const ariaLabel = `${day.current_date}, ${day.final_parent}`;
+  const ariaLabel = isToday
+    ? `${day.current_date}, ${day.final_parent}, today`
+    : `${day.current_date}, ${day.final_parent}`;
 
   return (
     <button
@@ -37,14 +40,18 @@ export function DayCell({ day, onSelect }: DayCellProps) {
       role="gridcell"
       aria-label={ariaLabel}
       data-overridden={day.is_overridden ? "true" : "false"}
+      data-today={isToday ? "true" : "false"}
       data-parent={parentClass}
       title={day.override_details?.description || day.override_details?.override_type}
       className={`rounded border p-1 text-left text-xs sm:p-2 sm:text-sm ${parentClass} ${
-        day.is_overridden ? "ring-2 ring-amber-500" : ""
-      }`}
+        isToday ? "border-2 border-slate-800" : ""
+      } ${day.is_overridden ? "ring-2 ring-amber-500" : ""}`}
       onClick={() => onSelect?.(day)}
     >
-      <div className="font-medium" aria-hidden="true">
+      <div
+        className={isToday ? "font-semibold" : "font-medium"}
+        aria-hidden="true"
+      >
         {dayNumber}
       </div>
       <div aria-hidden="true">{shortParent}</div>
