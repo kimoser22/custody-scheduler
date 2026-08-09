@@ -1,12 +1,20 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from concierge.phones import normalize_phone
 from concierge.ports import OverrideConflictError
-from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
+from core.engine import calculate_schedule
+from core.models import (
+    DailyCustodyState,
+    OverrideStatus,
+    OverrideType,
+    ParentRole,
+    ScheduleOverride,
+)
 from database.activation import activate_override, deactivate_day_rows
+from database.schedule_reads import load_baseline, load_overrides
 from database.schema import (
     AuditLogTable,
     HandshakeThreadTable,
@@ -268,3 +276,26 @@ class SqlOptOutStore:
             return
         self._session.delete(row)
         self._session.commit()
+
+
+class SqlScheduleReader:
+    """Read-only calendar view for the SMS concierge.
+
+    Deliberately built from the same loaders the HTTP schedule endpoint uses
+    (database/schedule_reads.py) rather than its own queries: if the two ever
+    diverged, a parent could be told one thing by text and shown another in the
+    app for the same day, and nothing would flag it.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def custody_between(
+        self, family_id: int, start: date, end: date
+    ) -> list[DailyCustodyState]:
+        return calculate_schedule(
+            baseline=load_baseline(self._session, family_id),
+            overrides=load_overrides(self._session, family_id),
+            start_date=start,
+            end_date=end,
+        )

@@ -24,7 +24,22 @@ STILL_OPTED_OUT_REPLY = (
     "Reply START to receive scheduling texts again."
 )
 
+INITIATOR_REPROMPT_SMS = (
+    "Sorry, I didn't catch that. Reply YES to send this request to the other "
+    "parent, or NO to cancel. Your request is still waiting."
+)
+
+COUNTERPARTY_REPROMPT_SMS = (
+    "Sorry, I didn't catch that. Reply ACCEPT to approve this schedule change, "
+    "or DENY to decline. The request is still waiting."
+)
+
 REQUEST_WITHDRAWN_SMS = (
     f"{PROGRAM_NAME}: the other parent withdrew their schedule change request "
     "and opted out of SMS. Nothing was changed on the calendar."
+)
+
+SCHEDULE_UNAVAILABLE_SMS = (
+    "Sorry, I can't look up the schedule right now. "
+    "Please check the calendar in the app."
 )

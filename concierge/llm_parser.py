@@ -16,7 +16,7 @@ from typing import Literal, Protocol
 import anthropic
 from pydantic import BaseModel
 
-from concierge.ports import IntentParser, ParsedIntent
+from concierge.ports import Intent, IntentParser, ParsedIntent, ScheduleQuery
 from core.models import OverrideType, ParentRole
 from core.ranges import is_valid_range
 
@@ -33,19 +33,27 @@ _PARENT_ROLES = {
 }
 
 
-class ExtractedSwap(BaseModel):
+class ExtractedIntent(BaseModel):
     """What the model must return. Nullable fields are the schema-level escape
     hatch: the system prompt instructs the model to return null rather than
     guess. override_date stays a string so a hallucinated non-date fails our
     own validation (-> None) instead of crashing schema parsing."""
 
-    override_date: str | None
+    # "swap" changes the calendar, "query" only reads it, "unclear" is the
+    # fail-safe. Kept as a required discriminator so the model has to commit
+    # rather than us inferring intent from which fields came back populated.
+    intent: Literal["swap", "query", "unclear"] = "unclear"
+    override_date: str | None = None
     # Inclusive end of a multi-day span, or null for a single day. A string for
     # the same reason as override_date: a hallucinated non-date must fail our
     # own validation rather than crash schema parsing.
     end_date: str | None = None
     assigned_parent: Literal["Parent A", "Parent B"] | None = None
     reason: str = ""
+
+
+# Kept so existing importers and tests referring to the old name keep working.
+ExtractedSwap = ExtractedIntent
 
 
 class _ParsingClient(Protocol):
@@ -57,21 +65,29 @@ class _ParsingClient(Protocol):
 
 def _system_prompt(today: date) -> str:
     return (
-        "You extract custody-swap requests from SMS messages for a household "
-        "scheduling app. Today's date is "
+        "You read SMS messages for a household custody scheduling app and "
+        "classify each one. Today's date is "
         f"{today.isoformat()}. The only valid parents are exactly "
         '"Parent A" and "Parent B" (map nicknames like mom/dad only when the '
         "message makes the mapping unambiguous).\n"
-        "Return the requested calendar date as an ISO YYYY-MM-DD string in "
-        "override_date, resolving relative phrases like 'next Friday' against "
+        'Set intent to "swap" when the sender wants to CHANGE who has the '
+        'children, "query" when they are ASKING who has them, and "unclear" '
+        "otherwise.\n"
+        "Return dates as ISO YYYY-MM-DD strings in override_date (the first or "
+        "only day), resolving relative phrases like 'next Friday' against "
         "today's date.\n"
         "For a multi-day span ('through', 'until', 'the week of', 'Monday to "
         "Friday'), also set end_date to the ISO date of the LAST day, "
         "inclusive. Leave end_date null for a single day — never invent a span "
         "the message did not ask for, and never shorten one it did.\n"
-        "If the message does not clearly specify BOTH a real calendar date "
-        "AND one of the two parents, return null for those fields — never "
-        "guess. A wrong extraction schedules a wrong custody handoff."
+        'A "swap" requires BOTH a real calendar date AND one of the two '
+        'parents; if either is missing, use "unclear" instead — never guess, '
+        "because a wrong extraction schedules a wrong custody handoff.\n"
+        'A "query" requires only a date, and no parent. When a message could '
+        'be read either way, prefer "query": answering a question that was '
+        "really a request just wastes a reply, but treating a question as a "
+        "request books a handoff nobody asked for.\n"
+        'If there is no usable date at all, use "unclear".'
     )
 
 
@@ -90,14 +106,14 @@ class LLMIntentParser:
         self.model = model
         self._today = today
 
-    def parse(self, text: str) -> ParsedIntent | None:
+    def parse(self, text: str) -> Intent | None:
         try:
             response = self._client.messages.parse(
                 model=self.model,
                 max_tokens=1024,
                 system=_system_prompt(self._today),
                 messages=[{"role": "user", "content": text}],
-                output_format=ExtractedSwap,
+                output_format=ExtractedIntent,
             )
         except anthropic.APIError:
             # Connection failures, timeouts, 4xx/5xx alike: degrade to the
@@ -108,11 +124,9 @@ class LLMIntentParser:
             return None
 
         extracted = getattr(response, "parsed_output", None)
-        if (
-            extracted is None
-            or extracted.override_date is None
-            or extracted.assigned_parent is None
-        ):
+        if extracted is None or extracted.intent == "unclear":
+            return None
+        if extracted.override_date is None:
             return None
 
         try:
@@ -133,6 +147,13 @@ class LLMIntentParser:
         if not is_valid_range(override_date, end_date):
             return None
 
+        if extracted.intent == "query":
+            # Reads need no parent, and there is nothing here to get wrong
+            # beyond the dates already validated above.
+            return ScheduleQuery(start_date=override_date, end_date=end_date)
+
+        if extracted.assigned_parent is None:
+            return None
         assigned = _PARENT_ROLES.get(extracted.assigned_parent)
         if assigned is None:
             return None
@@ -156,7 +177,7 @@ class CompositeIntentParser:
         self.primary = primary
         self.fallback = fallback
 
-    def parse(self, text: str) -> ParsedIntent | None:
+    def parse(self, text: str) -> Intent | None:
         intent = self.primary.parse(text)
         if intent is not None:
             return intent
