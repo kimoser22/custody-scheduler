@@ -13,6 +13,14 @@ on:
       - master
   pull_request:
 
+# Least privilege for GITHUB_TOKEN, applied to every job. Each job only checks
+# out the repository; nothing here writes to GitHub. The deploy authenticates to
+# Fly with its own FLY_API_TOKEN secret, so it needs no extra scope either.
+# Without this block the repository default applies, which for repositories
+# created before February 2023 is read-write.
+permissions:
+  contents: read
+
 # Supersede an in-flight run when a PR is pushed again. Never cancel on master:
 # that could kill a deploy midway.
 concurrency:
