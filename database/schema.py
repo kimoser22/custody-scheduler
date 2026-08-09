@@ -130,6 +130,54 @@ class SmsOptOutTable(SQLModel, table=True):
     opted_out_at: datetime
 
 
+class BackupRecordTable(SQLModel, table=True):
+    """One row per logical evidence-archive backup (see core/backup.py).
+
+    The UNIQUE constraint on backup_date is load-bearing twice over: it
+    prevents hash-chain forks AND serializes attempt ownership — two
+    concurrent triggers cannot both claim a date. The lease columns
+    distinguish "currently being sent" from "the process died mid-send";
+    an expired lease may be taken over atomically.
+    """
+
+    __tablename__ = "backup_records"
+
+    id: int | None = Field(default=None, primary_key=True)
+    backup_date: date = Field(unique=True)
+    created_at: datetime
+    sha256: str
+    prev_sha256: str | None = None
+    # Durable retry state, not the archive of record (the mailboxes are).
+    # Required while pending/failed so retries resend identical bytes;
+    # cleared in the same transaction that marks submitted, so this table
+    # never becomes a growing second copy of every cumulative export.
+    archive_bytes: bytes | None = None
+    status: str  # "pending" / "submitted" / "failed" / "abandoned"
+    attempt_started_at: datetime | None = None
+    lease_expires_at: datetime | None = None
+
+
+class BackupDeliveryTable(SQLModel, table=True):
+    """One row per recipient per delivery attempt.
+
+    parent_id is the frozen identity from the archive manifest; address_used
+    is whatever that parent's email was at THIS attempt — so a typo'd address
+    is a correctable operational fact, and 'attempted equivalent distribution'
+    is showable per attempt rather than asserted.
+    """
+
+    __tablename__ = "backup_deliveries"
+
+    id: int | None = Field(default=None, primary_key=True)
+    backup_id: int = Field(index=True)
+    attempt_no: int
+    parent_id: int
+    address_used: str
+    attempted_at: datetime
+    outcome: str  # "submitted" / "failed"
+    error_class: str | None = None
+
+
 class LoginAttemptTable(SQLModel, table=True):
     """Consecutive failed passcode attempts, and the lock they earned.
 
