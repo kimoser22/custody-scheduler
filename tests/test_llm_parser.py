@@ -394,3 +394,25 @@ def test_swap_missing_a_parent_is_not_silently_downgraded_to_a_query() -> None:
         )
     )
     assert _parser(client).parse("swap the 15th") is None
+
+
+def test_next_handoff_intent_yields_next_handoff_query() -> None:
+    from concierge.ports import NextHandoffQuery
+
+    client = FakeAnthropicClient(
+        result=_response(ExtractedSwap(intent="next_handoff", override_date=None))
+    )
+    intent = _parser(client).parse("when do I get them back?")
+    assert isinstance(intent, NextHandoffQuery)
+
+
+def test_next_handoff_ignores_a_hallucinated_date() -> None:
+    from concierge.ports import NextHandoffQuery
+
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(intent="next_handoff", override_date="2026-08-20")
+        )
+    )
+    intent = _parser(client).parse("when are they back")
+    assert isinstance(intent, NextHandoffQuery)

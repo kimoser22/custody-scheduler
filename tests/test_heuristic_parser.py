@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from concierge.adapters import HeuristicIntentParser
 from concierge.ports import ParsedIntent, ScheduleQuery
 from core.models import ParentRole
@@ -132,3 +134,34 @@ def test_question_without_a_date_is_still_unclear():
     """No date means nothing to look up — ask rather than guess "today"."""
     parser = HeuristicIntentParser()
     assert parser.parse("who has the kids?") is None
+
+
+# --- next-handoff phrases ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "when do i get them back",
+        "When do I get them back?",
+        "  when   are   they   back  ",
+        "when do i have them next",
+        "when do i get them",
+        "when is my next time!",
+    ],
+)
+def test_next_handoff_phrases_match_exactly(phrase: str):
+    from concierge.ports import NextHandoffQuery
+
+    intent = HeuristicIntentParser().parse(phrase)
+    assert isinstance(intent, NextHandoffQuery)
+
+
+def test_next_handoff_near_miss_is_not_matched():
+    """Substring / paraphrase guessing must not invent a next-handoff read."""
+    assert HeuristicIntentParser().parse("when do we leave") is None
+
+
+def test_on_date_query_still_wins_when_a_date_is_present():
+    intent = HeuristicIntentParser().parse("who has the kids on 2026-08-15?")
+    assert isinstance(intent, ScheduleQuery)
