@@ -5,9 +5,21 @@ from datetime import date, datetime, timedelta
 from typing import Any, TypedDict
 
 from core.approvals import ApprovalError, Decision, decide_override
-from core.handshake import HandshakeError, InitiatorDecision, apply_initiator_confirm
+from core.handshake import (
+    HandshakeError,
+    InitiatorDecision,
+    apply_initiator_confirm,
+    parse_counterparty_reply,
+    parse_initiator_reply,
+)
 from core.models import OverrideStatus
 from core.notifications import format_override_dates
+from core.schedule_summary import summarize_custody
+from concierge.sms_copy import (
+    COUNTERPARTY_REPROMPT_SMS,
+    INITIATOR_REPROMPT_SMS,
+    SCHEDULE_UNAVAILABLE_SMS,
+)
 from concierge.ports import (
     AuditRepository,
     IdempotencyStore,
@@ -16,6 +28,8 @@ from concierge.ports import (
     OptOutStore,
     OverrideConflictError,
     OverrideRepository,
+    ScheduleQuery,
+    ScheduleReader,
     SenderResolver,
     SmsGateway,
 )
@@ -59,6 +73,7 @@ class ConciergeState(TypedDict, total=False):
     counterparty_label: str
     override_id: int
     parsed_intent: dict[str, Any]
+    schedule_query: dict[str, Any]
     current_step: str
     dropped: bool
     error: str
@@ -76,6 +91,10 @@ class ConciergeDeps:
     counterparty_by_family: dict[int, tuple[int, str, str]]
     parents_by_family: dict[int, list[tuple[int, str, str]]] | None = None
     opt_outs: OptOutStore = field(default_factory=InMemoryOptOutStore)
+    # Optional so the many existing call sites that only exercise the swap flow
+    # keep constructing deps unchanged; a query with no reader says so rather
+    # than crashing the webhook.
+    schedule: ScheduleReader | None = None
 
 
 def ingest_and_dedupe(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
@@ -129,6 +148,20 @@ def ingest_and_dedupe(state: ConciergeState, deps: ConciergeDeps) -> ConciergeSt
 
 def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = deps.parser.parse(state["inbound_body"])
+
+    if isinstance(intent, ScheduleQuery):
+        # A read. It must not reach create_draft below, so it routes out here
+        # with nothing written and no counterparty involved.
+        return {
+            **state,
+            "schedule_query": {
+                # Checkpointed by LangGraph, so keep it JSON-serializable.
+                "start_date": intent.start_date.isoformat(),
+                "end_date": intent.end_date.isoformat() if intent.end_date else None,
+            },
+            "current_step": "answer_schedule_query",
+        }
+
     if intent is None:
         # Fail safe: the message didn't clearly specify a date + parent. Ask the
         # initiator to clarify instead of drafting a guessed custody handoff.
@@ -177,6 +210,34 @@ def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     }
 
 
+def answer_schedule_query(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
+    """Reply with who has the children, and change nothing.
+
+    Terminal: no interrupt, no draft, no counterparty. Authorization already
+    happened in ingest_and_dedupe, which drops senders it cannot resolve to a
+    family — custody detail must never go to an unrecognized number.
+    """
+    query = state["schedule_query"]
+    start = date.fromisoformat(query["start_date"])
+    end = date.fromisoformat(query["end_date"]) if query["end_date"] else start
+
+    if deps.schedule is None:
+        deps.sms.send(state["initiator_phone"], SCHEDULE_UNAVAILABLE_SMS)
+        return {**state, "current_step": "completed", "error": "no_schedule_reader"}
+
+    days = deps.schedule.custody_between(state["family_id"], start, end)
+    deps.sms.send(state["initiator_phone"], summarize_custody(days))
+    deps.audit.append(
+        family_id=state["family_id"],
+        actor_role=state["initiator_role"],
+        action_type="schedule_query",
+        description=f"Answered custody query for {format_override_dates(start, end)}",
+        previous_state_id=None,
+        timestamp=deps.now,
+    )
+    return {**state, "current_step": "completed"}
+
+
 def draft_confirmation_sms(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = state["parsed_intent"]
     body = (
@@ -188,8 +249,22 @@ def draft_confirmation_sms(state: ConciergeState, deps: ConciergeDeps) -> Concie
 
 
 def process_initiator_reply(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
-    text = state["inbound_body"].strip().upper()
-    decision = InitiatorDecision.YES if text.startswith("YES") else InitiatorDecision.NO
+    decision = parse_initiator_reply(state["inbound_body"])
+    if decision is None:
+        # Not an answer. Ask again and leave the request exactly as it was —
+        # deciding it here is how a mid-handshake question used to cancel a
+        # swap. The 24h TTL still bounds how long this can loop.
+        deps.sms.send(state["initiator_phone"], INITIATOR_REPROMPT_SMS)
+        deps.audit.append(
+            family_id=state["family_id"],
+            actor_role=state["initiator_role"],
+            action_type="initiator_reply_unrecognized",
+            description="Initiator reply was not YES or NO; re-prompted",
+            previous_state_id=state["override_id"],
+            timestamp=deps.now,
+        )
+        return {**state, "current_step": "awaiting_initiator_confirm"}
+
     override = deps.overrides.get(state["override_id"])
     assert override is not None and override.expires_at is not None
     result = apply_initiator_confirm(
@@ -250,8 +325,20 @@ def send_proposal_to_counterparty(state: ConciergeState, deps: ConciergeDeps) ->
 
 
 def process_counterparty_reply(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
-    text = state["inbound_body"].strip().upper()
-    approve = text.startswith("ACCEPT")
+    decision = parse_counterparty_reply(state["inbound_body"])
+    if decision is None:
+        # Same rule as the initiator side: an unrecognized reply is not a denial.
+        deps.sms.send(state["counterparty_phone"], COUNTERPARTY_REPROMPT_SMS)
+        deps.audit.append(
+            family_id=state["family_id"],
+            actor_role="Parent",
+            action_type="counterparty_reply_unrecognized",
+            description="Counterparty reply was not ACCEPT or DENY; re-prompted",
+            previous_state_id=state["override_id"],
+            timestamp=deps.now,
+        )
+        return {**state, "current_step": "awaiting_counterparty_consent"}
+
     override = deps.overrides.get(state["override_id"])
     assert override is not None and override.expires_at is not None
 
@@ -259,7 +346,7 @@ def process_counterparty_reply(state: ConciergeState, deps: ConciergeDeps) -> Co
         current_status=override.status,
         requested_by_user_id=override.requested_by_user_id or 0,
         actor_user_id=state["counterparty_user_id"],
-        decision=Decision.APPROVE if approve else Decision.REJECT,
+        decision=decision,
         now=deps.now,
         expires_at=override.expires_at,
     )

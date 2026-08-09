@@ -19,9 +19,11 @@ from concierge.repos import (
     SqlIdempotencyStore,
     SqlOptOutStore,
     SqlOverrideRepository,
+    SqlScheduleReader,
     SqlThreadRegistry,
 )
 from concierge.runner import LangGraphConciergeRunner
+from core.clock import household_today
 from database.connection import engine, resolve_database_url
 from database.schema import UserTable
 
@@ -130,7 +132,9 @@ def _build_parser(today: date) -> IntentParser:
     return CompositeIntentParser(heuristic, llm)
 
 
-def build_default_runner(session: Session | None = None) -> LangGraphConciergeRunner:
+def build_default_runner(
+    session: Session | None = None, *, now: datetime | None = None
+) -> LangGraphConciergeRunner:
     session = session or Session(engine)
 
     users = session.exec(select(UserTable).where(UserTable.role == "Parent")).all()
@@ -142,19 +146,29 @@ def build_default_runner(session: Session | None = None) -> LangGraphConciergeRu
             (user.id, user.phone, user.custody_label or "Parent")
         )
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Two different questions come off one instant, and they need different
+    # answers. Everything downstream of deps.now is a *moment* — audit
+    # timestamps, expires_at, decided_at — and stays UTC, matching every row
+    # already written. The parser instead needs a *calendar date*, which is a
+    # local question: in the evening UTC has already rolled over, so asking it
+    # made "tomorrow" resolve a day late (see core/clock.py).
+    instant = now or datetime.now(timezone.utc)
+    deps_now = instant.replace(tzinfo=None) if instant.tzinfo is None else (
+        instant.astimezone(timezone.utc).replace(tzinfo=None)
+    )
     opt_outs = SqlOptOutStore(session)
     deps = ConciergeDeps(
         sms=OptOutAwareSmsGateway(EnvTwilioSmsGateway(), opt_outs),
-        parser=_build_parser(today=now.date()),
+        parser=_build_parser(today=household_today(instant)),
         resolver=SqlSenderResolver(session),
         overrides=SqlOverrideRepository(session),
         audit=SqlAuditRepository(session),
         idempotency=SqlIdempotencyStore(session),
-        now=now,
+        now=deps_now,
         counterparty_by_family={},
         parents_by_family=parents_by_family,
         opt_outs=opt_outs,
+        schedule=SqlScheduleReader(session),
     )
     return LangGraphConciergeRunner(
         deps=deps,

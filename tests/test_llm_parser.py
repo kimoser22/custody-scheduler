@@ -19,6 +19,7 @@ import pytest
 
 from concierge.adapters import HeuristicIntentParser
 from concierge.llm_parser import CompositeIntentParser, ExtractedSwap, LLMIntentParser
+from concierge.ports import ScheduleQuery
 from concierge.ports import FakeIntentParser, ParsedIntent
 from core.models import OverrideType, ParentRole
 
@@ -76,6 +77,7 @@ def test_clear_message_yields_validated_intent() -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-08-07",
                 assigned_parent="Parent B",
                 reason="soccer tournament",
@@ -93,7 +95,7 @@ def test_clear_message_yields_validated_intent() -> None:
 def test_null_fields_mean_unclear_and_yield_none() -> None:
     client = FakeAnthropicClient(
         result=_response(
-            ExtractedSwap(override_date=None, assigned_parent=None, reason="unclear")
+            ExtractedSwap(intent="unclear", override_date=None, assigned_parent=None, reason="unclear")
         )
     )
     assert _parser(client).parse("can you take them sometime?") is None
@@ -106,6 +108,7 @@ def test_invalid_date_string_from_model_yields_none(bad_date: str) -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date=bad_date, assigned_parent="Parent A", reason="swap"
             )
         )
@@ -128,6 +131,7 @@ def test_refusal_stop_reason_yields_none() -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-08-07", assigned_parent="Parent B", reason="swap"
             ),
             stop_reason="refusal",
@@ -142,7 +146,7 @@ def test_prompt_carries_today_and_both_parent_labels() -> None:
     without pinning prose wording."""
     client = FakeAnthropicClient(
         result=_response(
-            ExtractedSwap(override_date=None, assigned_parent=None, reason="x")
+            ExtractedSwap(intent="unclear", override_date=None, assigned_parent=None, reason="x")
         )
     )
     _parser(client).parse("swap next Friday to dad")
@@ -160,7 +164,7 @@ def test_prompt_carries_today_and_both_parent_labels() -> None:
 def test_prompt_covers_multi_day_spans() -> None:
     client = FakeAnthropicClient(
         result=_response(
-            ExtractedSwap(override_date=None, assigned_parent=None, reason="x")
+            ExtractedSwap(intent="unclear", override_date=None, assigned_parent=None, reason="x")
         )
     )
     _parser(client).parse("swap next Monday through Friday to Parent B")
@@ -176,6 +180,7 @@ def test_extracted_range_becomes_a_range_intent() -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-08-01",
                 end_date="2026-08-10",
                 assigned_parent="Parent B",
@@ -193,6 +198,7 @@ def test_null_end_date_means_single_day() -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-08-07",
                 end_date=None,
                 assigned_parent="Parent B",
@@ -215,6 +221,7 @@ def test_unusable_end_date_rejects_the_whole_intent(bad_end: str) -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-08-01",
                 end_date=bad_end,
                 assigned_parent="Parent B",
@@ -229,6 +236,7 @@ def test_range_longer_than_the_cap_is_rejected() -> None:
     client = FakeAnthropicClient(
         result=_response(
             ExtractedSwap(
+                intent="swap",
                 override_date="2026-01-01",
                 end_date="2027-06-01",
                 assigned_parent="Parent B",
@@ -293,7 +301,7 @@ def _llm_declining() -> LLMIntentParser:
     return _parser(
         FakeAnthropicClient(
             result=_response(
-                ExtractedSwap(override_date=None, assigned_parent=None, reason="?")
+                ExtractedSwap(intent="unclear", override_date=None, assigned_parent=None, reason="?")
             )
         )
     )
@@ -324,3 +332,65 @@ def test_every_parser_returns_none_for_ambiguous_input(
     SMS instead of drafting a guessed custody handoff. Any future parser
     (new provider, new model) must be added to this parametrization."""
     assert make_parser().parse(ambiguous_text) is None
+
+
+# --- schedule queries ----------------------------------------------------------
+
+
+def test_query_intent_yields_a_schedule_query() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(intent="query", override_date="2026-08-15")
+        )
+    )
+    intent = _parser(client).parse("who has the kids next Saturday?")
+    assert isinstance(intent, ScheduleQuery)
+    assert intent.start_date == date(2026, 8, 15)
+    assert intent.end_date is None
+
+
+def test_query_needs_no_parent() -> None:
+    """A read cannot pick the wrong parent, so the swap requirement is dropped
+    rather than turning every question into a clarification request."""
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                intent="query",
+                override_date="2026-08-15",
+                end_date="2026-08-18",
+                assigned_parent=None,
+            )
+        )
+    )
+    intent = _parser(client).parse("who has them the 15th through the 18th?")
+    assert isinstance(intent, ScheduleQuery)
+    assert intent.end_date == date(2026, 8, 18)
+
+
+def test_query_with_an_invalid_date_still_fails_safe() -> None:
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(intent="query", override_date="not-a-date")
+        )
+    )
+    assert _parser(client).parse("who has them whenever?") is None
+
+
+def test_query_without_a_date_is_unclear() -> None:
+    client = FakeAnthropicClient(
+        result=_response(ExtractedSwap(intent="query", override_date=None))
+    )
+    assert _parser(client).parse("who has the kids?") is None
+
+
+def test_swap_missing_a_parent_is_not_silently_downgraded_to_a_query() -> None:
+    """A swap the model could not fully extract must clarify, not become a
+    read the sender never asked for."""
+    client = FakeAnthropicClient(
+        result=_response(
+            ExtractedSwap(
+                intent="swap", override_date="2026-08-15", assigned_parent=None
+            )
+        )
+    )
+    assert _parser(client).parse("swap the 15th") is None

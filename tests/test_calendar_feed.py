@@ -104,6 +104,32 @@ def test_calendar_feed_returns_ics_with_required_headers(
     assert "SUMMARY:Custody:" in body
 
 
+def test_feed_window_is_anchored_on_the_household_date(
+    client_fixture: TestClient,
+    session_fixture: Session,
+    monkeypatch,
+) -> None:
+    """The +/-30/180 day window hangs off "today", which is a local calendar
+    question, not a UTC one. Late in the evening a UTC anchor slides the whole
+    window a day early."""
+    import api.router as router_module
+
+    monkeypatch.setattr(router_module, "household_today", lambda: date(2026, 8, 12))
+
+    viewer, _ = _seed_users(session_fixture)
+    app.dependency_overrides[get_current_user] = _override_current_user(viewer)
+    token = client_fixture.post("/api/v1/me/calendar-feed", json={}).json()["token"]
+
+    body = client_fixture.get(
+        "/api/v1/schedule/feed.ics", params={"token": token}
+    ).text
+
+    earliest = date(2026, 8, 12) - timedelta(days=router_module.FEED_PAST_DAYS)
+    latest = date(2026, 8, 12) + timedelta(days=router_module.FEED_FUTURE_DAYS)
+    assert f"DTSTART;VALUE=DATE:{earliest:%Y%m%d}" in body
+    assert f"DTSTART;VALUE=DATE:{latest:%Y%m%d}" in body
+
+
 def test_rotate_invalidates_old_token(
     client_fixture: TestClient,
     session_fixture: Session,

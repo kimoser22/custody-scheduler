@@ -26,23 +26,28 @@ from core.notifications import (
 from concierge.ports import OptOutAwareSmsGateway, OptOutStore, SmsGateway
 from concierge.repos import SqlAuditRepository, SqlOptOutStore
 from core.approvals import ApprovalError, Decision, decide_override, find_expired_pending
+from core.clock import household_today
 from core.engine import calculate_schedule
 from core.export import build_family_export
 from core.ics import build_custody_ics
 from core.models import (
-    BaselineSchedule,
     DailyCustodyState,
     NotifyStatus,
     OverrideDecisionRequest,
     OverrideStatus,
     OverrideType,
-    ParentRole,
     ScheduleOverride,
 )
 from core.ranges import MAX_RANGE_DAYS
 from database.activation import activate_override
+from database.schedule_reads import (
+    DEFAULT_BASELINE,
+    load_baseline as _load_baseline,
+    load_overrides as _load_overrides,
+    override_to_domain as _to_domain,
+)
 from database.connection import engine
-from database.schema import BaselineTable, OverrideTable, UserTable
+from database.schema import OverrideTable, UserTable
 
 _logger = logging.getLogger(__name__)
 
@@ -54,11 +59,6 @@ OVERRIDE_REQUEST_TTL = timedelta(hours=24)
 PLANNED_OVERRIDE_TTL = timedelta(days=7)
 FEED_PAST_DAYS = 30
 FEED_FUTURE_DAYS = 180
-
-DEFAULT_BASELINE = BaselineSchedule(
-    epoch_start_date=date(2026, 1, 5),
-    starting_parent=ParentRole.PARENT_A,
-)
 
 
 def _request_ttl(override: ScheduleOverride) -> timedelta:
@@ -74,46 +74,6 @@ def _date_span_label(start: date, end: date | None) -> str:
     if end is None or end == start:
         return str(start)
     return f"{start} to {end}"
-
-
-def _load_baseline(session: Session, family_id: int) -> BaselineSchedule:
-    row = session.exec(
-        select(BaselineTable).where(BaselineTable.family_id == family_id)
-    ).first()
-    if row is None:
-        return DEFAULT_BASELINE
-    return BaselineSchedule(
-        epoch_start_date=row.epoch_start_date,
-        starting_parent=ParentRole(row.starting_parent),
-    )
-
-
-def _to_domain(
-    row: OverrideTable,
-    *,
-    requested_by_label: str | None = None,
-) -> ScheduleOverride:
-    return ScheduleOverride(
-        id=row.id,
-        override_date=row.override_date,
-        end_date=row.end_date,
-        assigned_parent=ParentRole(row.assigned_parent),
-        override_type=OverrideType(row.override_type),
-        description=row.description,
-        is_active=row.is_active,
-        status=OverrideStatus(row.status),
-        expires_at=row.expires_at,
-        requested_by_user_id=row.requested_by_user_id,
-        requested_by_label=requested_by_label,
-        email_notify_status=(
-            NotifyStatus(row.email_notify_status)
-            if row.email_notify_status
-            else None
-        ),
-        sms_notify_status=(
-            NotifyStatus(row.sms_notify_status) if row.sms_notify_status else None
-        ),
-    )
 
 
 def _user(session: Session, user_id: int) -> UserTable | None:
@@ -307,16 +267,6 @@ def _queue_sms(
     )
 
 
-def _load_overrides(session: Session, family_id: int) -> list[ScheduleOverride]:
-    rows = session.exec(
-        select(OverrideTable).where(
-            OverrideTable.family_id == family_id,
-            OverrideTable.is_active.is_(True),
-        )
-    ).all()
-    return [_to_domain(row) for row in rows]
-
-
 @router.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
@@ -353,7 +303,8 @@ def export_family_records(
         )
     payload = build_family_export(session, user.family_id)
     body = json.dumps(payload, indent=2, sort_keys=False)
-    today = datetime.now(timezone.utc).date().isoformat()
+    # Local date so the filename matches the day the user pressed the button.
+    today = household_today().isoformat()
     return Response(
         content=body,
         media_type="application/json",
@@ -386,7 +337,9 @@ def get_calendar_feed(
             detail="Invalid calendar feed token.",
         )
 
-    today = datetime.now(timezone.utc).date()
+    # Anchored locally: a UTC "today" slides the whole window a day early every
+    # evening, so a subscribed calendar would disagree with the web app.
+    today = household_today()
     start_date = today - timedelta(days=FEED_PAST_DAYS)
     end_date = today + timedelta(days=FEED_FUTURE_DAYS)
     days = calculate_schedule(
