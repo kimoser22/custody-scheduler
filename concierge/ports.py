@@ -3,7 +3,13 @@ from datetime import date, datetime
 from typing import Protocol
 
 from concierge.phones import normalize_phone
-from core.models import OverrideStatus, OverrideType, ParentRole, ScheduleOverride
+from core.models import (
+    DailyCustodyState,
+    OverrideStatus,
+    OverrideType,
+    ParentRole,
+    ScheduleOverride,
+)
 
 
 class RecipientOptedOutError(Exception):
@@ -35,6 +41,24 @@ class ParsedIntent:
     # Inclusive end of a multi-day span; None means single day, matching
     # ScheduleOverride.end_date and core.ranges.effective_end.
     end_date: date | None = None
+
+
+@dataclass(frozen=True)
+class ScheduleQuery:
+    """A read: "who has the kids on X?" — no parent, no consent, no mutation.
+
+    Deliberately a sibling type rather than a flag on ParsedIntent: the two go
+    down completely different paths, and a type the swap code cannot accidentally
+    consume is what keeps a question from drafting an override.
+    """
+
+    start_date: date
+    end_date: date | None = None
+
+
+# What a parser may return. None still means "unclear" — the fail-safe contract
+# is unchanged, and consumers must branch on type before touching swap fields.
+Intent = ParsedIntent | ScheduleQuery
 
 
 @dataclass(frozen=True)
@@ -107,7 +131,16 @@ class OptOutAwareSmsGateway:
 
 
 class IntentParser(Protocol):
-    def parse(self, text: str) -> ParsedIntent | None: ...
+    def parse(self, text: str) -> Intent | None: ...
+
+
+class ScheduleReader(Protocol):
+    """Read-only view of the calculated calendar, shared with the HTTP path so
+    an SMS answer and the web app can never disagree."""
+
+    def custody_between(
+        self, family_id: int, start: date, end: date
+    ) -> list[DailyCustodyState]: ...
 
 
 class SenderResolver(Protocol):

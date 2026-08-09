@@ -19,6 +19,7 @@ from concierge.repos import (
     SqlIdempotencyStore,
     SqlOptOutStore,
     SqlOverrideRepository,
+    SqlScheduleReader,
     SqlThreadRegistry,
 )
 from concierge.runner import LangGraphConciergeRunner
@@ -167,6 +168,7 @@ def build_default_runner(
         counterparty_by_family={},
         parents_by_family=parents_by_family,
         opt_outs=opt_outs,
+        schedule=SqlScheduleReader(session),
     )
     return LangGraphConciergeRunner(
         deps=deps,

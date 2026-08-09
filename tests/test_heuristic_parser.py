@@ -1,6 +1,7 @@
 from datetime import date
 
 from concierge.adapters import HeuristicIntentParser
+from concierge.ports import ParsedIntent, ScheduleQuery
 from core.models import ParentRole
 
 
@@ -88,3 +89,46 @@ def test_range_longer_than_the_cap_yields_none():
     """Matches the web validator's ceiling; activation writes a row per day."""
     parser = HeuristicIntentParser()
     assert parser.parse("swap 2026-01-01 to 2027-06-01 to Parent B") is None
+
+
+# --- schedule queries ----------------------------------------------------------
+#
+# Reading a question as a swap is the dangerous direction: it drafts an override
+# and texts the other parent. Reading a swap as a question is harmless, so
+# question shape wins whenever both could apply.
+
+
+def test_who_has_question_is_a_query_not_a_swap():
+    parser = HeuristicIntentParser()
+    intent = parser.parse("who has the kids on 2026-08-15?")
+    assert isinstance(intent, ScheduleQuery)
+    assert intent.start_date == date(2026, 8, 15)
+    assert intent.end_date is None
+
+
+def test_query_accepts_a_range():
+    parser = HeuristicIntentParser()
+    intent = parser.parse("who has them 2026-08-15 to 2026-08-18?")
+    assert isinstance(intent, ScheduleQuery)
+    assert intent.start_date == date(2026, 8, 15)
+    assert intent.end_date == date(2026, 8, 18)
+
+
+def test_question_wins_even_when_a_parent_is_named():
+    """"does Parent A have them on X?" is a question, not a request to move
+    the day to Parent A. Answering it is safe; drafting from it is not."""
+    parser = HeuristicIntentParser()
+    intent = parser.parse("does Parent A have the kids 2026-08-15?")
+    assert isinstance(intent, ScheduleQuery)
+
+
+def test_swap_without_question_shape_is_still_a_swap():
+    parser = HeuristicIntentParser()
+    intent = parser.parse("swap 2026-08-15 to Parent B for soccer")
+    assert isinstance(intent, ParsedIntent)
+
+
+def test_question_without_a_date_is_still_unclear():
+    """No date means nothing to look up — ask rather than guess "today"."""
+    parser = HeuristicIntentParser()
+    assert parser.parse("who has the kids?") is None

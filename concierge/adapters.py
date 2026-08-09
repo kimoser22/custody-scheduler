@@ -7,7 +7,13 @@ from datetime import date
 from sqlmodel import Session, select
 
 from concierge.phones import normalize_phone
-from concierge.ports import ParsedIntent, RecipientOptedOutError, ResolvedSender
+from concierge.ports import (
+    Intent,
+    ParsedIntent,
+    RecipientOptedOutError,
+    ResolvedSender,
+    ScheduleQuery,
+)
 from core.models import OverrideType, ParentRole
 from core.ranges import is_valid_range
 from database.schema import UserTable
@@ -16,6 +22,18 @@ _logger = logging.getLogger(__name__)
 
 # Twilio: "Attempt to send to unsubscribed recipient".
 _OPTED_OUT_ERROR_CODE = 21610
+
+# Openers that make a message a question about the schedule rather than a
+# request to change it. A trailing "?" counts on its own.
+_QUESTION_OPENERS = (
+    "who", "whose", "who's", "whos", "when", "which",
+    "is ", "are ", "does ", "do ", "will ", "am i", "what",
+)
+
+
+def _is_question(lowered: str) -> bool:
+    stripped = lowered.strip()
+    return stripped.endswith("?") or stripped.startswith(_QUESTION_OPENERS)
 
 
 class SqlSenderResolver:
@@ -98,7 +116,7 @@ class HeuristicIntentParser:
     to the sender as a clarification request (see concierge.nodes.parse_intent).
     """
 
-    def parse(self, text: str) -> ParsedIntent | None:
+    def parse(self, text: str) -> Intent | None:
         lowered = text.lower()
 
         if "parent b" in lowered:
@@ -112,12 +130,27 @@ class HeuristicIntentParser:
         # message is a range request, and truncating it to the start silently
         # books one day of a vacation the parent asked ten days for.
         found: list[date] = []
-        for token in text.replace(",", " ").split():
+        for raw in text.replace(",", " ").split():
+            # Trailing punctuation is normal in a question ("...on 2026-08-15?")
+            # and would otherwise push the token past the 10-character check.
+            token = raw.strip("?.!;:()[[]'\"")
             if len(token) == 10 and token[4] == "-" and token[7] == "-":
                 try:
                     found.append(date.fromisoformat(token))
                 except ValueError:
                     continue
+
+        # A question is answered, never acted on. Checked before the swap
+        # branch and regardless of whether a parent is named, because the two
+        # misreadings are not symmetric: answering a swap request costs a
+        # wasted text, while drafting from a question books a custody handoff
+        # nobody asked for and pages the other parent about it.
+        if _is_question(lowered) and found:
+            start = min(found)
+            end = max(found) if len(found) == 2 else None
+            if len(found) > 2 or not is_valid_range(start, end):
+                return None
+            return ScheduleQuery(start_date=start, end_date=end)
 
         if assigned is None or not found:
             return None
