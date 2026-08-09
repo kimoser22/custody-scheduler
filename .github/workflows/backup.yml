@@ -1,0 +1,41 @@
+# Weekly evidence-archive backup: triggers the app to email the custody record
+# to both parents, hash-chained (see core/backup.py). This workflow reveals
+# timing only — the data never passes through GitHub.
+#
+# Monitoring, honestly stated: failed executions are observable as failed runs
+# here and can generate GitHub notifications WHEN Actions notifications are
+# enabled — a user setting, not a guarantee. Failure to execute at all remains
+# unmonitored: GitHub disables scheduled workflows after 60 days of repository
+# inactivity, and under Actions load scheduled jobs can be delayed or dropped
+# (the off-the-hour minute below mitigates only the latter). A "last successful
+# archive > 8 days" health check is the planned follow-up.
+
+name: Weekly custody-record backup
+
+on:
+  schedule:
+    # Monday 03:17 UTC = Sunday 23:17 Eastern (EDT) / 22:17 (EST).
+    # :17 deliberately avoids the top-of-the-hour load spike GitHub documents.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    name: Trigger archive email
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger and assert submitted
+        env:
+          BACKUP_TRIGGER_TOKEN: ${{ secrets.BACKUP_TRIGGER_TOKEN }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer ${BACKUP_TRIGGER_TOKEN}" \
+            https://custody-scheduler-api.fly.dev/api/v1/admin/backup-email)"
+          echo "${response}" | jq '{backup_date, sha256, prev_sha256, status}'
+          # The transport succeeding is not enough: the archive must have been
+          # handed to SMTP for every required parent identity.
+          echo "${response}" | jq -e '.status == "submitted"' > /dev/null

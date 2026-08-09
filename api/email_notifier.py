@@ -42,16 +42,47 @@ class SmtpEmailNotifier:
         )
 
     def send(self, *, to: str, subject: str, body: str) -> None:
+        self.send_with_outcome(to=to, subject=subject, body=body)
+
+    def send_with_outcome(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body: str,
+        attachments: list[tuple[str, bytes]] | None = None,
+    ) -> str:
+        """Send and return "submitted" or "failed".
+
+        The archival path persists per-recipient outcomes as evidence, so it
+        reads the return value rather than the mutable last_outcome attribute
+        — a value that only stays trustworthy while this object is
+        request-scoped and sends are sequential. "submitted" means the SMTP
+        server accepted the message, not that the inbox received it.
+
+        Unconfigured SMTP returns "not_configured", NOT "submitted": nothing
+        was handed to any server, and an evidence archive recorded as
+        delivered while nobody received it is the false record this whole
+        design exists to prevent. (last_outcome keeps its legacy "sent" value
+        so ordinary notification statuses in local dev are unchanged.)
+        """
         self.sent.append((to, subject, body))
         self.last_outcome = "sent"
         if not self._is_configured():
-            return
+            return "not_configured"
 
         message = EmailMessage()
         message["From"] = self.from_address
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
+        for filename, payload in attachments or []:
+            message.add_attachment(
+                payload,
+                maintype="application",
+                subtype="json",
+                filename=filename,
+            )
 
         try:
             with smtplib.SMTP(
@@ -65,3 +96,5 @@ class SmtpEmailNotifier:
             # more than the notification about it.
             self.last_outcome = "failed"
             _logger.warning("Failed to send notification email to %s", to, exc_info=True)
+            return "failed"
+        return "submitted"

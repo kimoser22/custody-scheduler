@@ -110,7 +110,7 @@ def test_build_family_export_omits_secrets(session_fixture: Session) -> None:
     _seed_family(session_fixture)
     payload = build_family_export(session_fixture, family_id=1)
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2  # v2 added backup history
     assert payload["family_name"] == "Test Family"
     assert payload["baseline"]["epoch_start_date"] == "2026-01-01"
     assert len(payload["users"]) == 3
@@ -146,7 +146,7 @@ def test_parent_can_download_export(
     assert 'attachment; filename="custody-export-' in response.headers["content-disposition"]
     assert response.headers["content-disposition"].endswith('.json"')
     body = response.json()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2  # v2 added backup history
     assert body["family_id"] == 1
     assert len(body["overrides"]) == 1
     assert "passcode_hash" not in response.text

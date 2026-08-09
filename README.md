@@ -278,24 +278,52 @@ Notes:
 
 ### Backup (family of record)
 
-Two layers — use both periodically. Neither encrypts the file for you; keep copies on a private drive.
+Two layers with different jobs. The design borrows from evidence-preservation
+principles — contemporaneous recording, regularity, provenance, authentication
+— but whether any record qualifies under an evidentiary rule is a question for
+counsel in an actual proceeding, not something this software asserts.
 
-**1. JSON archive (readable overrides + audit)**
+**Layer 1 — evidence archive (automated, weekly)**
 
-Any signed-in family member can download from the schedule page (**Download records**), or:
+Every Monday 03:17 UTC, `.github/workflows/backup.yml` triggers
+`POST /api/v1/admin/backup-email` (guarded by the `BACKUP_TRIGGER_TOKEN`
+secret). The app builds a full JSON export — baseline, users (contacts only,
+never passcode hashes or feed tokens), all overrides, complete audit log,
+backup history — wraps it in a self-describing manifest, and emails it to
+**both parents** with its SHA-256 in the subject. Each archive records the
+previous archive's hash inside its own hashed bytes, forming a chain: editing,
+deleting, inserting, or reordering any previously archived content is
+detectable, and copies live in two independently controlled mailboxes. What
+the chain does *not* prove: the truth of the original entries, or absolute
+time (the email received-timestamps are corroboration, not a cryptographic
+timestamp).
 
-```powershell
-# After minting a token via POST /api/v1/auth/token
-curl.exe -sL -H "Authorization: Bearer <ACCESS_TOKEN>" `
-  -o "custody-export.json" `
-  https://custody-scheduler-api.fly.dev/api/v1/schedule/export.json
+Save the attachments to a folder as they arrive; verify anytime with:
+
+```bash
+python tools/verify_backup_chain.py path/to/saved-archives
 ```
 
-The export includes family baseline, users (contacts only — no passcode hashes or calendar feed tokens), all overrides, audit logs, and SMS opt-outs for family phones. It is archive-only (no import path yet). Optional: schedule that curl weekly via Task Scheduler / cron with a refreshed token.
+A failed delivery makes the workflow run red and is retried on the next
+trigger with **byte-identical** content — one backup date is always exactly
+one archive. Note the honest monitoring gap: a red run can notify you (when
+GitHub Actions notifications are enabled), but a run that never fires —
+scheduled workflows pause after 60 days of repo inactivity — alerts no one.
+If a weekly email stops arriving, check the Actions tab.
 
-**2. Full SQLite file (disaster restore)**
+Manual trigger: the workflow's **Run workflow** button, or the same signed-in
+download as always (**Download records** on the schedule page, or
+`GET /api/v1/schedule/export.json` with a bearer token).
 
-Make a WAL-safe copy on the machine, then fetch it locally:
+**Restore drill (do this once):** open a saved archive, find a week you
+remember, and confirm its overrides and audit entries are present and
+legible. A backup that has never been read back is a hope, not a backup.
+
+**Layer 2 — short-term operational recovery**
+
+Fly volume snapshots (retention raised to the 60-day maximum:
+`fly volumes update <vol-id> --snapshot-retention 60`), plus a manual WAL-safe
+pull of the raw database when wanted:
 
 ```powershell
 fly ssh console -a custody-scheduler-api
@@ -306,7 +334,11 @@ exit
 fly ssh sftp get -a custody-scheduler-api /data/custody-backup.db ./custody-backup.db
 ```
 
-Restore means replacing `/data/custody.db` with a known-good copy on a stopped or single machine — treat that as a last resort and keep the dated backup elsewhere first.
+The raw `custody.db` contains secrets (passcode hashes, feed tokens) and is
+never emailed. Restore means replacing `/data/custody.db` with a known-good
+copy on a stopped or single machine — a last resort; the evidence archive
+above is the family-of-record copy. This layer still depends on Fly plus a
+human; an encrypted copy to an independent provider is the planned upgrade.
 
 ### Private family launch — seed & re-seed
 
