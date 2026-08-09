@@ -162,3 +162,27 @@ def test_format_version_present() -> None:
     doc = json.loads(_archive("2026-08-02", None, {}).decode("utf-8"))
     assert doc["archive_manifest"]["format"] == "custody-archive"
     assert doc["archive_manifest"]["archive_format_version"] == ARCHIVE_FORMAT_VERSION
+
+
+def test_every_file_must_be_accounted_for() -> None:
+    """A forged continuation of a corroborated-failed branch must not slide
+    through unaccounted: OK means every file is chain, failed, or flagged."""
+    a = _archive("2026-08-02", None, {"note": "week 1"})
+    failed = _archive("2026-08-09", sha256_hex(a), {"note": "failed attempt"})
+    succeeded = _archive(
+        "2026-08-10",
+        sha256_hex(a),
+        {
+            "note": "real week 2",
+            "backup_records": [
+                {"backup_date": "2026-08-09", "sha256": sha256_hex(failed),
+                 "status": "failed"},
+            ],
+        },
+    )
+    forged = _archive("2026-08-16", sha256_hex(failed), {"note": "forged"})
+
+    result = verify_chain([a, failed, succeeded, forged])
+
+    assert not result.ok
+    assert sha256_hex(forged) in result.unexplained_branches

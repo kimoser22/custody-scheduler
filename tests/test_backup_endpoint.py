@@ -512,3 +512,46 @@ def test_snapshot_read_sees_one_database_state(tmp_path) -> None:
     assert after == before + 1  # write visible once the snapshot closed
     engine_a.dispose()
     engine_b.dispose()
+
+
+def test_unconfigured_smtp_is_a_failed_backup_not_a_false_submitted(
+    backup_env, session_fixture: Session,
+) -> None:
+    """Invariant 2: submitted means bytes reached an SMTP server. With SMTP
+    unconfigured nothing reached anywhere — recording submitted would be a
+    false record and a permanently green workflow delivering nothing."""
+    from api.email_notifier import SmtpEmailNotifier
+
+    app.dependency_overrides[get_notifier] = SmtpEmailNotifier  # env stripped
+
+    response = _trigger(backup_env)
+
+    assert response.status_code == 502
+    row = _rows(session_fixture)[0]
+    assert row.status == "failed"
+    classes = {d.error_class for d in _deliveries(session_fixture)}
+    assert classes == {"not_configured"}
+
+
+def test_abandon_refuses_a_live_in_flight_attempt(
+    backup_env, session_fixture: Session,
+) -> None:
+    """Abandoning is for archives that can never complete — not for yanking a
+    delivery out from under a process that is mid-send."""
+    session_fixture.add(
+        BackupRecordTable(
+            backup_date=DAY1, created_at=NOW, sha256="d" * 64,
+            prev_sha256=None, archive_bytes=b"{}", status="pending",
+            attempt_started_at=NOW,
+            lease_expires_at=NOW + timedelta(minutes=9),
+        )
+    )
+    session_fixture.commit()
+
+    response = backup_env.post(
+        "/api/v1/admin/backup-abandon",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+
+    assert response.status_code == 409
+    assert _rows(session_fixture)[0].status == "pending"

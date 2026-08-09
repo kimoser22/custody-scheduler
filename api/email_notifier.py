@@ -59,11 +59,17 @@ class SmtpEmailNotifier:
         — a value that only stays trustworthy while this object is
         request-scoped and sends are sequential. "submitted" means the SMTP
         server accepted the message, not that the inbox received it.
+
+        Unconfigured SMTP returns "not_configured", NOT "submitted": nothing
+        was handed to any server, and an evidence archive recorded as
+        delivered while nobody received it is the false record this whole
+        design exists to prevent. (last_outcome keeps its legacy "sent" value
+        so ordinary notification statuses in local dev are unchanged.)
         """
         self.sent.append((to, subject, body))
         self.last_outcome = "sent"
         if not self._is_configured():
-            return "submitted"
+            return "not_configured"
 
         message = EmailMessage()
         message["From"] = self.from_address

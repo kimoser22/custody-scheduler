@@ -201,7 +201,14 @@ def _deliver(
                 body=body,
                 attachments=[(filename, raw)],
             )
-            error_class = "smtp_failure" if outcome == "failed" else None
+            if outcome == "submitted":
+                error_class = None
+            else:
+                # "failed" -> smtp_failure; anything else (e.g.
+                # "not_configured") is its own error class, and the delivery
+                # row records it as a failure either way.
+                error_class = "smtp_failure" if outcome == "failed" else outcome
+                outcome = "failed"
             used = address
         delivery = BackupDeliveryTable(
             backup_id=record.id,
@@ -372,6 +379,18 @@ def abandon_unresolved_backup(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No unresolved backup to abandon.",
+        )
+    if (
+        unresolved.status == "pending"
+        and unresolved.lease_expires_at is not None
+        and unresolved.lease_expires_at > now
+    ):
+        # Abandon is for archives that can never complete, not for yanking a
+        # delivery out from under a process that is mid-send — that attempt
+        # may still mark itself submitted and would silently overwrite this.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A delivery attempt is in flight; wait for its lease to expire.",
         )
 
     unresolved.status = "abandoned"

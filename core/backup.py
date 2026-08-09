@@ -219,7 +219,11 @@ def verify_chain(files: list[bytes]) -> ChainResult:
         result.chain.append(current)
         on_chain.add(current.sha256)
 
-    # Anything not on the chain and not already classified.
+    # Every file must end up accounted for: on the chain, corroborated as a
+    # failed attempt, or explicitly flagged. There is no silent bucket — a
+    # file the verifier cannot place (a continuation of a failed branch, a
+    # link to an unknown predecessor, a detached subgraph) is exactly what it
+    # exists to surface, so anything left over fails verification.
     for digest, member in members.items():
         if digest in on_chain or digest in result.failed_branches:
             continue
@@ -227,13 +231,15 @@ def verify_chain(files: list[bytes]) -> ChainResult:
             continue
         if corroborated.get(digest) not in (None, "submitted"):
             result.failed_branches.append(digest)
-        elif member.prev_sha256 in members or member.prev_sha256 is None:
-            # Its predecessor exists yet it isn't on the chain: a fork already
-            # handled above, or a duplicate genesis — both recorded there.
             continue
+        result.ok = False
+        result.unexplained_branches.append(digest)
+        if member.prev_sha256 in members:
+            result.problems.append(
+                f"{digest[:12]}… is not on the chain and no later history "
+                "explains it"
+            )
         else:
-            result.ok = False
-            result.unexplained_branches.append(digest)
             result.problems.append(
                 f"{digest[:12]}… links to an unknown predecessor "
                 f"{str(member.prev_sha256)[:12]}…"

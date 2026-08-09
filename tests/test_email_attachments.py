@@ -65,12 +65,14 @@ def test_send_with_outcome_attaches_the_archive(
     assert attachments[0].get_payload(decode=True) == payload
 
 
-def test_send_with_outcome_reports_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unconfigured SMTP still records locally and reports submitted (local
-    dev); a raising SMTP reports failed instead of raising."""
+def test_unconfigured_smtp_is_not_reported_as_submitted() -> None:
+    """Nothing reached any SMTP server, so the archival path must not be told
+    it did — "submitted" here would let a config regression produce green
+    backups that deliver nothing. Plain send() keeps its no-op behavior."""
     notifier = SmtpEmailNotifier()  # env stripped by conftest -> unconfigured
     assert (
-        notifier.send_with_outcome(to="a@x", subject="s", body="b") == "submitted"
+        notifier.send_with_outcome(to="a@x", subject="s", body="b")
+        == "not_configured"
     )
 
 
