@@ -50,6 +50,7 @@ htmlcov/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
@@ -62,3 +63,7 @@ Thumbs.db
 frontend/node_modules/
 frontend/.next/
 frontend/.env.local
+
+# Local working notes. This repository is public; review findings stay on disk
+# so an accidental `git add -A` cannot publish them.
+*_AUDIT.md
