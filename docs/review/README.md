@@ -73,6 +73,9 @@ UTC-tomorrow). Those only prove pytest.
 **Overfitting:** if a charter misses, tighten it, then re-validate with a
 *different* defect in the same class — not the revert you just tuned against.
 
+Campaign records (after eval / clean passes):
+[EVAL_RESULTS.md](EVAL_RESULTS.md), [PASS_REPORTS.md](PASS_REPORTS.md).
+
 ## Optimization
 
 Not part of this campaign. Only with measured evidence
