@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import logging
 import os
 from typing import Annotated
 from urllib.parse import urlsplit, urlunsplit
@@ -9,6 +10,12 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 
 from api.dependencies import SessionDep
 from concierge.runner import ConciergeRunner
+
+logger = logging.getLogger(__name__)
+
+# Body only — construct a fresh Response per request so concurrent handlers
+# never share mutable response state.
+_EMPTY_TWIML_BODY = "<Response></Response>"
 
 twilio_router = APIRouter(prefix="/api/v1/twilio")
 
@@ -74,11 +81,28 @@ def receive_sms(
     From: str = Form(...),
     Body: str = Form(...),
 ) -> Response:
-    runner.handle_sms(
-        message_sid=MessageSid,
-        from_phone=From,
-        body=Body,
-    )
-    # Always a silent, empty-TwiML ack (dropped, ignored, or handled alike);
-    # the business outcome is delivered via the SMS replies the nodes send.
-    return Response(content="<Response></Response>", media_type="application/xml")
+    try:
+        runner.handle_sms(
+            message_sid=MessageSid,
+            from_phone=From,
+            body=Body,
+        )
+    except HTTPException:
+        # Must not turn intentional auth/validation signals into a silent 200.
+        raise
+    except Exception:
+        # After signature verification this request was accepted. A 500 here
+        # surfaces as Twilio 11200 and the inbound is lost from the family's
+        # perspective (default messaging webhooks do not retry 5xx). Ack with
+        # empty TwiML and emit an alertable marker for log recovery.
+        # Note: get_concierge_runner failures still 500 *before* this try —
+        # and before any message_sid claim.
+        logger.exception(
+            "sms_handler_failed message_sid=%s from=%s",
+            MessageSid,
+            From,
+        )
+    # Always a silent, empty-TwiML ack (dropped, ignored, handled, or failed
+    # alike); the business outcome is delivered via the SMS replies the nodes
+    # send when the handler succeeds.
+    return Response(content=_EMPTY_TWIML_BODY, media_type="application/xml")

@@ -287,3 +287,78 @@ def test_failed_outbound_reply_still_acks_the_inbound_message(
         select(OverrideTable).where(OverrideTable.requested_by_user_id == 9202)
     ).all()
     assert len(drafts) == 1
+
+
+def test_handler_exception_acks_with_empty_twiml_and_logs_message_sid(
+    client_fixture: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unexpected failures after accept must not 500 — Twilio 11200 and a lost
+    inbound for the family. The alertable log line is the recovery product."""
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
+
+    class ExplodingRunner:
+        def __init__(self) -> None:
+            self.called = False
+
+        def handle_sms(self, *, message_sid: str, from_phone: str, body: str):
+            self.called = True
+            raise RuntimeError("boom")
+
+    runner = ExplodingRunner()
+    app.dependency_overrides[get_concierge_runner] = lambda: runner
+
+    with caplog.at_level("ERROR", logger="api.twilio_webhook"):
+        response = client_fixture.post(
+            "/api/v1/twilio/sms",
+            data={
+                "MessageSid": "SM-handler-boom",
+                "From": "+15550001",
+                "Body": "hi",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.text == "<Response></Response>"
+    assert response.headers["content-type"].startswith("application/xml")
+    assert runner.called is True
+    assert any(
+        "sms_handler_failed" in record.message
+        and "SM-handler-boom" in record.message
+        for record in caplog.records
+        if record.levelname == "ERROR"
+    )
+    app.dependency_overrides.pop(get_concierge_runner, None)
+
+
+def test_handler_http_exception_is_not_swallowed_into_empty_twiml(
+    client_fixture: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTPException must still surface — the catch must not turn intentional
+    auth/validation signals into a silent 200."""
+    from fastapi import HTTPException, status
+
+    monkeypatch.setenv("TWILIO_ALLOW_UNVERIFIED", "1")
+
+    class ForbiddenRunner:
+        def handle_sms(self, *, message_sid: str, from_phone: str, body: str):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="intentional",
+            )
+
+    app.dependency_overrides[get_concierge_runner] = lambda: ForbiddenRunner()
+
+    response = client_fixture.post(
+        "/api/v1/twilio/sms",
+        data={
+            "MessageSid": "SM-http-exc",
+            "From": "+15550001",
+            "Body": "hi",
+        },
+    )
+
+    assert response.status_code == 403
+    app.dependency_overrides.pop(get_concierge_runner, None)
