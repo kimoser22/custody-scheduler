@@ -136,20 +136,20 @@ export default function SchedulePage() {
 
       {authToken ? (
         <div className="mt-4 mb-4">
-          <AccountSettings showContacts={canRequestOverride(session)}>
+          <AccountSettings isParent={canRequestOverride(session)}>
             <AccountSettingsSection id="calendar" title="Calendar subscribe">
               <CalendarSubscribe
                 key={authToken}
                 ensureCalendarFeed={ensureCalendarFeedRequest}
               />
             </AccountSettingsSection>
-            <AccountSettingsSection id="passcode" title="Passcode">
+            <AccountSettingsSection id="passcode" title="Passcode" parentOnly>
               <PasscodeSettings
                 key={`passcode-${authToken}`}
                 changePasscode={changePasscodeRequest}
               />
             </AccountSettingsSection>
-            <AccountSettingsSection id="download" title="Download records">
+            <AccountSettingsSection id="download" title="Download records" parentOnly>
               <RecordsExport
                 key={`export-${authToken}`}
                 downloadFamilyExport={downloadFamilyExportRequest}
