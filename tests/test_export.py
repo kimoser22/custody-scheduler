@@ -153,17 +153,26 @@ def test_parent_can_download_export(
     assert "calendar_feed_token" not in response.text
 
 
-def test_viewer_can_download_export(
+def test_viewer_cannot_download_export(
     client_fixture: TestClient,
     session_fixture: Session,
 ) -> None:
+    """Reversal of an earlier decision, recorded deliberately.
+
+    This previously asserted 200: any signed-in family member could download.
+    That was defensible while "family member" meant the two parents. It stopped
+    being defensible once Viewer became ONE shared account handed to
+    grandparents and sitters — the archive carries both parents' phone numbers,
+    email addresses and the complete custody audit log, so granting it to the
+    Viewer grants it to everyone holding that shared passcode at once.
+    See tests/test_viewer_role.py for the full boundary.
+    """
     _, _, viewer = _seed_family(session_fixture)
     app.dependency_overrides[get_current_user] = _override_current_user(viewer)
 
     response = client_fixture.get("/api/v1/schedule/export.json")
 
-    assert response.status_code == 200
-    assert response.json()["family_name"] == "Test Family"
+    assert response.status_code == 403
 
 
 def test_export_unknown_user_404(

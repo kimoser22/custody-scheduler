@@ -292,9 +292,15 @@ def get_schedule(
 @schedule_router.get("/export.json")
 def export_family_records(
     session: SessionDep,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> Response:
-    """Downloadable JSON archive of durable family custody records."""
+    """Downloadable JSON archive of durable family custody records.
+
+    Parent-only: the archive carries both parents' phone numbers and email
+    addresses plus the complete custody audit log. Viewer is a single shared
+    account, so granting it here would hand that record to everyone holding
+    the shared passcode at once.
+    """
     user = _user(session, current_user.id)
     if user is None:
         raise HTTPException(

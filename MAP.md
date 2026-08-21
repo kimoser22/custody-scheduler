@@ -38,6 +38,13 @@ the authorization boundary**; nothing downstream re-checks it. Only the swap
 path interrupts, so read/unclear branches cannot strand a thread. Unrecognized
 YES/NO replies re-prompt (the cycles above) instead of deciding.
 
+**Roles.** `Viewer` is ONE shared account (grandparents, sitters), so any
+capability it holds is held by everyone with that passcode at once. Viewer may
+read the schedule and mint a calendar-feed token; `require_parent_role`
+([api/dependencies.py](api/dependencies.py)) gates override writes/decisions,
+contact edits, passcode change, and the record export. The UI mirrors this via
+`parentOnly` sections, but the server is the boundary.
+
 **Schedule resolution is one implementation, two surfaces.**
 `core/engine.calculate_schedule` is pure: a 2-2-3 cycle (`_SEGMENT_LENGTHS`)
 overlaid with active+approved overrides. Its inputs load through

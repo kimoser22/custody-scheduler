@@ -9,28 +9,30 @@ import {
 } from "react";
 
 interface AccountSettingsContextValue {
-  showContacts: boolean;
+  isParent: boolean;
 }
 
 const AccountSettingsContext = createContext<AccountSettingsContextValue>({
-  showContacts: true,
+  isParent: true,
 });
 
 interface AccountSettingsProps {
   children: ReactNode;
-  /** When false, sections marked parentOnly are omitted (Viewer). Default true. */
-  showContacts?: boolean;
+  /** False for the shared Viewer account: sections marked parentOnly are
+   * omitted. Renamed from showContacts — it now gates passcode and record
+   * download too, not just contact settings. */
+  isParent?: boolean;
 }
 
 export function AccountSettings({
   children,
-  showContacts = true,
+  isParent = true,
 }: AccountSettingsProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
 
   return (
-    <AccountSettingsContext.Provider value={{ showContacts }}>
+    <AccountSettingsContext.Provider value={{ isParent }}>
       <div className="rounded border border-slate-200 bg-white">
         <button
           type="button"
@@ -61,7 +63,7 @@ interface AccountSettingsSectionProps {
   id: string;
   title: string;
   children: ReactNode;
-  /** Hide for Viewer when AccountSettings showContacts is false. */
+  /** Omitted for the shared Viewer account. */
   parentOnly?: boolean;
 }
 
@@ -71,9 +73,9 @@ export function AccountSettingsSection({
   children,
   parentOnly = false,
 }: AccountSettingsSectionProps) {
-  const { showContacts } = useContext(AccountSettingsContext);
+  const { isParent } = useContext(AccountSettingsContext);
 
-  if (parentOnly && !showContacts) {
+  if (parentOnly && !isParent) {
     return null;
   }
 

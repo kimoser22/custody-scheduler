@@ -311,9 +311,11 @@ GitHub Actions notifications are enabled), but a run that never fires —
 scheduled workflows pause after 60 days of repo inactivity — alerts no one.
 If a weekly email stops arriving, check the Actions tab.
 
-Manual trigger: the workflow's **Run workflow** button, or the same signed-in
-download as always (**Download records** on the schedule page, or
-`GET /api/v1/schedule/export.json` with a bearer token).
+Manual trigger: the workflow's **Run workflow** button, or a **parent's**
+signed-in download (**Download records** on the schedule page, or
+`GET /api/v1/schedule/export.json` with a bearer token). The archive is
+parent-only: it carries both parents' phone numbers, email addresses and the
+full audit log, and Viewer is a single shared account.
 
 **Restore drill (do this once):** open a saved archive, find a week you
 remember, and confirm its overrides and audit entries are present and

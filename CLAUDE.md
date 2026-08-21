@@ -24,3 +24,5 @@ implementation — starts already knowing the structure instead of re-deriving i
   future reader would otherwise "simplify" away.
 - Run `pytest tests/` and `npx vitest run` (in `frontend/`) before pushing; CI
   gates the deploy on both.
+- Custody-truth review charters (outcome-gated, one pass per session): see
+  [docs/review/README.md](docs/review/README.md).

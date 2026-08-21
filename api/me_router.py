@@ -174,9 +174,14 @@ def change_passcode(
     body: PasscodeChangeRequest,
     session: SessionDep,
     throttle: LoginThrottleDep,
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    current_user: Annotated[CurrentUser, Depends(require_parent_role)],
 ) -> PasscodeChangeResponse:
-    """Rotate the signed-in user's login passcode without a DB wipe."""
+    """Rotate the signed-in parent's login passcode without a DB wipe.
+
+    Parent-only. Viewer is one shared account: letting any holder rotate it
+    would lock out every other holder — and the parents — with a value nobody
+    else knows. Knowing the current passcode is deliberately not sufficient.
+    """
     user = _load_user(session, current_user.id)
     if user.passcode_hash is None:
         raise HTTPException(
