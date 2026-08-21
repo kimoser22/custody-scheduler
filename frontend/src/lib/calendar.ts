@@ -10,6 +10,12 @@ export function localTodayDate(now: Date = new Date()): string {
   return formatLocalDate(now);
 }
 
+/** Add `n` calendar days to a YYYY-MM-DD string using local date parts (not UTC). */
+export function addDays(yyyyMmDd: string, n: number): string {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  return formatLocalDate(new Date(year, month - 1, day + n));
+}
+
 export function getMonthRange(reference = new Date()) {
   const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
   const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);

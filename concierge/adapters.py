@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from concierge.phones import normalize_phone
 from concierge.ports import (
     Intent,
+    NextHandoffQuery,
     ParsedIntent,
     RecipientOptedOutError,
     ResolvedSender,
@@ -29,6 +30,25 @@ _QUESTION_OPENERS = (
     "who", "whose", "who's", "whos", "when", "which",
     "is ", "are ", "does ", "do ", "will ", "am i", "what",
 )
+
+# Exact phrases for "when do I get them back?" — no date required. Matched
+# after normalize (lowercase, collapse whitespace, strip trailing punctuation).
+# Checked before the generic question branch so these never fall through to
+# the LLM for a free clarification round-trip.
+_NEXT_HANDOFF_PHRASES = frozenset(
+    {
+        "when do i get them back",
+        "when are they back",
+        "when do i have them next",
+        "when do i get them",
+        "when is my next time",
+    }
+)
+
+
+def _normalize_phrase(text: str) -> str:
+    collapsed = " ".join(text.lower().split())
+    return collapsed.strip("?.!;:()[]'\"")
 
 
 def _is_question(lowered: str) -> bool:
@@ -118,6 +138,12 @@ class HeuristicIntentParser:
 
     def parse(self, text: str) -> Intent | None:
         lowered = text.lower()
+
+        # Fixed next-handoff phrases first — they carry no date, so they would
+        # otherwise miss the on-date query branch and waste an LLM call (or
+        # clarification). Exact match only after normalize.
+        if _normalize_phrase(text) in _NEXT_HANDOFF_PHRASES:
+            return NextHandoffQuery()
 
         if "parent b" in lowered:
             assigned: ParentRole | None = ParentRole.PARENT_B

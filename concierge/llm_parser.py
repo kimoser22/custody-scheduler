@@ -16,7 +16,7 @@ from typing import Literal, Protocol
 import anthropic
 from pydantic import BaseModel
 
-from concierge.ports import Intent, IntentParser, ParsedIntent, ScheduleQuery
+from concierge.ports import Intent, IntentParser, NextHandoffQuery, ParsedIntent, ScheduleQuery
 from core.models import OverrideType, ParentRole
 from core.ranges import is_valid_range
 
@@ -39,10 +39,11 @@ class ExtractedIntent(BaseModel):
     guess. override_date stays a string so a hallucinated non-date fails our
     own validation (-> None) instead of crashing schema parsing."""
 
-    # "swap" changes the calendar, "query" only reads it, "unclear" is the
-    # fail-safe. Kept as a required discriminator so the model has to commit
-    # rather than us inferring intent from which fields came back populated.
-    intent: Literal["swap", "query", "unclear"] = "unclear"
+    # "swap" changes the calendar, "query" / "next_handoff" only read it,
+    # "unclear" is the fail-safe. Kept as a required discriminator so the
+    # model has to commit rather than us inferring intent from which fields
+    # came back populated.
+    intent: Literal["swap", "query", "next_handoff", "unclear"] = "unclear"
     override_date: str | None = None
     # Inclusive end of a multi-day span, or null for a single day. A string for
     # the same reason as override_date: a hallucinated non-date must fail our
@@ -71,7 +72,9 @@ def _system_prompt(today: date) -> str:
         '"Parent A" and "Parent B" (map nicknames like mom/dad only when the '
         "message makes the mapping unambiguous).\n"
         'Set intent to "swap" when the sender wants to CHANGE who has the '
-        'children, "query" when they are ASKING who has them, and "unclear" '
+        'children, "query" when they are ASKING who has them on a named date '
+        'or range, "next_handoff" when they ask when custody next changes / '
+        "when they get the children back (no date required), and \"unclear\" "
         "otherwise.\n"
         "Return dates as ISO YYYY-MM-DD strings in override_date (the first or "
         "only day), resolving relative phrases like 'next Friday' against "
@@ -83,11 +86,14 @@ def _system_prompt(today: date) -> str:
         'A "swap" requires BOTH a real calendar date AND one of the two '
         'parents; if either is missing, use "unclear" instead — never guess, '
         "because a wrong extraction schedules a wrong custody handoff.\n"
-        'A "query" requires only a date, and no parent. When a message could '
-        'be read either way, prefer "query": answering a question that was '
+        'A "query" requires only a date, and no parent. A "next_handoff" '
+        "requires neither a date nor a parent — ignore any date you might "
+        "invent. When a message could be read as a read vs a write, prefer "
+        'the read ("query" or "next_handoff"): answering a question that was '
         "really a request just wastes a reply, but treating a question as a "
         "request books a handoff nobody asked for.\n"
-        'If there is no usable date at all, use "unclear".'
+        'If there is no usable date at all and it is not a next_handoff, use '
+        '"unclear".'
     )
 
 
@@ -126,6 +132,12 @@ class LLMIntentParser:
         extracted = getattr(response, "parsed_output", None)
         if extracted is None or extracted.intent == "unclear":
             return None
+
+        if extracted.intent == "next_handoff":
+            # Orientation comes from the resolved sender at answer time; any
+            # date the model hallucinated is ignored.
+            return NextHandoffQuery()
+
         if extracted.override_date is None:
             return None
 

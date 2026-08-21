@@ -56,9 +56,18 @@ class ScheduleQuery:
     end_date: date | None = None
 
 
+@dataclass(frozen=True)
+class NextHandoffQuery:
+    """A read: "when do I get them back?" — no date, no parent, no mutation.
+
+    Orientation comes from ResolvedSender.custody_label at answer time, not
+    from the message. Empty dataclass so the type alone is the signal.
+    """
+
+
 # What a parser may return. None still means "unclear" — the fail-safe contract
 # is unchanged, and consumers must branch on type before touching swap fields.
-Intent = ParsedIntent | ScheduleQuery
+Intent = ParsedIntent | ScheduleQuery | NextHandoffQuery
 
 
 @dataclass(frozen=True)

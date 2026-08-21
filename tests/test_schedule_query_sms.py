@@ -6,7 +6,7 @@ creates no override row and leaves no open handshake behind — because the
 failure that would matter is a question quietly booking a custody handoff.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -211,3 +211,82 @@ def test_a_swap_request_still_creates_a_draft(
     assert len(rows) == 1
     assert rows[0].status == OverrideStatus.DRAFT.value
     assert any("YES" in body for _, body in sent)
+
+
+# --- next-handoff ("when do I get them back?") ---------------------------------
+
+
+def test_next_handoff_from_away_parent_names_return_and_writes_nothing(
+    session_fixture: Session, family: None
+) -> None:
+    """On 2026-08-10 Parent B holds through the 11th; Parent A is back the 12–13."""
+    result, sent, runner = _ask(
+        session_fixture,
+        "when do I get them back?",
+        sid="SM-nh1",
+        frm=PARENT_A_PHONE,
+    )
+
+    assert result["status"] == "ok"
+    assert len(sent) == 1
+    body = sent[0][1]
+    assert body == (
+        "Parent B has them through 2026-08-11. "
+        "Back to you 2026-08-12 to 2026-08-13."
+    )
+
+    assert _overrides(session_fixture) == []
+    assert runner.registry.get(PARENT_A_PHONE) is None
+    assert session_fixture.get(HandshakeThreadTable, PARENT_A_PHONE) is None
+
+
+def test_next_handoff_from_holding_parent_orients_as_you_have(
+    session_fixture: Session, family: None
+) -> None:
+    result, sent, runner = _ask(
+        session_fixture,
+        "when do I get them back?",
+        sid="SM-nh2",
+        frm=PARENT_B_PHONE,
+    )
+
+    assert result["status"] == "ok"
+    assert sent[0][1] == (
+        "You have the kids through 2026-08-11. "
+        "Parent A has them starting 2026-08-12."
+    )
+    assert _overrides(session_fixture) == []
+    assert session_fixture.get(HandshakeThreadTable, PARENT_B_PHONE) is None
+
+
+def test_next_handoff_from_unknown_number_is_ignored(
+    session_fixture: Session, family: None
+) -> None:
+    result, sent, _ = _ask(
+        session_fixture,
+        "when do I get them back?",
+        sid="SM-nh3",
+        frm=STRANGER,
+    )
+    assert result["status"] == "ignored"
+    assert sent == []
+
+
+def test_next_handoff_agrees_with_schedule_reader_ground_truth(
+    session_fixture: Session, family: None
+) -> None:
+    from core.clock import household_today
+    from core.schedule_summary import HANDOFF_HORIZON_DAYS, next_handoff_summary
+
+    start = household_today(NOW)
+    end = start + timedelta(days=HANDOFF_HORIZON_DAYS)
+    days = SqlScheduleReader(session_fixture).custody_between(FAMILY_ID, start, end)
+    expected = next_handoff_summary(days, "Parent A")
+
+    _, sent, _ = _ask(
+        session_fixture,
+        "when are they back",
+        sid="SM-nh4",
+        frm=PARENT_A_PHONE,
+    )
+    assert sent[0][1] == expected

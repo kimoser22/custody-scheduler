@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatLocalDate, getMonthRange, localTodayDate, shiftMonth } from "@/lib/calendar";
+import {
+  addDays,
+  formatLocalDate,
+  getMonthRange,
+  localTodayDate,
+  shiftMonth,
+} from "@/lib/calendar";
 
 describe("calendar helpers", () => {
   it("formats local dates as YYYY-MM-DD without UTC shifting", () => {
@@ -32,5 +38,17 @@ describe("calendar helpers", () => {
       startDate: "2026-02-01",
       endDate: "2026-02-28",
     });
+  });
+
+  it("addDays rolls across month and year boundaries", () => {
+    expect(addDays("2026-01-31", 1)).toBe("2026-02-01");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDays("2026-08-10", 45)).toBe("2026-09-24");
+  });
+
+  it("addDays stays on local calendar parts across a DST spring-forward day", () => {
+    // US DST spring-forward 2026-03-08; calendar add must not skip a civil day.
+    expect(addDays("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09");
   });
 });

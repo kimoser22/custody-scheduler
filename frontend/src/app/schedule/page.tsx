@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { HouseholdAuthBar } from "@/components/HouseholdAuthBar";
 import { CalendarGrid } from "@/components/CalendarGrid";
@@ -31,12 +31,31 @@ import {
 } from "@/lib/api/overrides";
 import {
   type Session,
+  IDENTITY_USER_IDS,
   canRequestOverride,
   currentUserId as currentUserIdFrom,
   getSession,
 } from "@/lib/auth";
-import { getMonthRange, localTodayDate, shiftMonth } from "@/lib/calendar";
+import { addDays, getMonthRange, localTodayDate, shiftMonth } from "@/lib/calendar";
+import {
+  HANDOFF_HORIZON_DAYS,
+  type ParentLabel,
+  findNextHandoff,
+  formatHandoffCue,
+} from "@/lib/nextHandoff";
 import type { DailyCustodyState } from "@/lib/types";
+
+function parentLabelFromSession(session: Session | null): ParentLabel | null {
+  if (session == null) {
+    return null;
+  }
+  for (const [label, userId] of Object.entries(IDENTITY_USER_IDS)) {
+    if (userId === session.userId && (label === "Parent A" || label === "Parent B")) {
+      return label;
+    }
+  }
+  return null;
+}
 
 export default function SchedulePage() {
   const [monthReference, setMonthReference] = useState(() => new Date());
@@ -49,6 +68,18 @@ export default function SchedulePage() {
     endDate,
     authToken,
   });
+  const {
+    days: horizonDays,
+    isLoading: horizonLoading,
+    refetch: horizonRefetch,
+  } = useSchedule({
+    startDate: todayDate,
+    endDate: addDays(todayDate, HANDOFF_HORIZON_DAYS),
+    authToken,
+  });
+  const refetchAll = useCallback(async () => {
+    await Promise.all([refetch(), horizonRefetch()]);
+  }, [refetch, horizonRefetch]);
   const [selectedDay, setSelectedDay] = useState<DailyCustodyState | null>(null);
   const [pendingListVersion, setPendingListVersion] = useState(0);
   const currentUserId = currentUserIdFrom(session);
@@ -57,6 +88,15 @@ export default function SchedulePage() {
     ? days.find((day) => day.current_date === todayDate)
     : undefined;
   const viewingOtherMonth = !isLoading && !error && todayCustody == null;
+  const myLabel = parentLabelFromSession(session);
+  const nextHandoff =
+    authToken && !horizonLoading
+      ? findNextHandoff(horizonDays, todayDate)
+      : null;
+  const handoffCue =
+    nextHandoff != null
+      ? formatHandoffCue({ handoff: nextHandoff, myLabel })
+      : null;
 
   // Warm the neighboring months once the current one has data, so Previous /
   // Next render instantly from cache instead of flashing a spinner.
@@ -83,6 +123,15 @@ export default function SchedulePage() {
   function jumpToThisMonth() {
     setSelectedDay(null);
     setMonthReference(new Date());
+  }
+
+  function jumpToHandoffMonth() {
+    if (nextHandoff == null) {
+      return;
+    }
+    const [year, month] = nextHandoff.date.split("-").map(Number);
+    setSelectedDay(null);
+    setMonthReference(new Date(year, month - 1, 1));
   }
 
   return (
@@ -128,6 +177,15 @@ export default function SchedulePage() {
             onClick={jumpToThisMonth}
           >
             Today · Jump to this month
+          </button>
+        ) : null}
+        {handoffCue ? (
+          <button
+            type="button"
+            className="block text-left text-sm font-medium text-slate-800 underline-offset-2 hover:underline"
+            onClick={jumpToHandoffMonth}
+          >
+            {handoffCue}
           </button>
         ) : null}
       </div>
@@ -209,7 +267,7 @@ export default function SchedulePage() {
                 : undefined
             }
             currentUserId={currentUserId}
-            onDecided={() => void refetch()}
+            onDecided={() => void refetchAll()}
           />
         </div>
       ) : null}
@@ -221,7 +279,7 @@ export default function SchedulePage() {
             createOverride={createOverrideRequest}
             onSuccess={() => {
               setSelectedDay(null);
-              void refetch();
+              void refetchAll();
               setPendingListVersion((version) => version + 1);
             }}
           />

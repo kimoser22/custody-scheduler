@@ -14,7 +14,12 @@ from core.handshake import (
 )
 from core.models import OverrideStatus
 from core.notifications import format_override_dates
-from core.schedule_summary import summarize_custody
+from core.schedule_summary import (
+    HANDOFF_HORIZON_DAYS,
+    next_handoff_summary,
+    summarize_custody,
+)
+from core.clock import household_today
 from concierge.sms_copy import (
     COUNTERPARTY_REPROMPT_SMS,
     INITIATOR_REPROMPT_SMS,
@@ -25,6 +30,7 @@ from concierge.ports import (
     IdempotencyStore,
     InMemoryOptOutStore,
     IntentParser,
+    NextHandoffQuery,
     OptOutStore,
     OverrideConflictError,
     OverrideRepository,
@@ -149,6 +155,13 @@ def ingest_and_dedupe(state: ConciergeState, deps: ConciergeDeps) -> ConciergeSt
 def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
     intent = deps.parser.parse(state["inbound_body"])
 
+    if isinstance(intent, NextHandoffQuery):
+        return {
+            **state,
+            "schedule_query": {"kind": "next_handoff"},
+            "current_step": "answer_schedule_query",
+        }
+
     if isinstance(intent, ScheduleQuery):
         # A read. It must not reach create_draft below, so it routes out here
         # with nothing written and no counterparty involved.
@@ -156,6 +169,8 @@ def parse_intent(state: ConciergeState, deps: ConciergeDeps) -> ConciergeState:
             **state,
             "schedule_query": {
                 # Checkpointed by LangGraph, so keep it JSON-serializable.
+                # kind is additive; old checkpoints without it default to on-date.
+                "kind": "on_date",
                 "start_date": intent.start_date.isoformat(),
                 "end_date": intent.end_date.isoformat() if intent.end_date else None,
             },
@@ -218,12 +233,32 @@ def answer_schedule_query(state: ConciergeState, deps: ConciergeDeps) -> Concier
     family — custody detail must never go to an unrecognized number.
     """
     query = state["schedule_query"]
-    start = date.fromisoformat(query["start_date"])
-    end = date.fromisoformat(query["end_date"]) if query["end_date"] else start
+    kind = query.get("kind", "on_date")
 
     if deps.schedule is None:
         deps.sms.send(state["initiator_phone"], SCHEDULE_UNAVAILABLE_SMS)
         return {**state, "current_step": "completed", "error": "no_schedule_reader"}
+
+    if kind == "next_handoff":
+        start = household_today(deps.now)
+        end = start + timedelta(days=HANDOFF_HORIZON_DAYS)
+        days = deps.schedule.custody_between(state["family_id"], start, end)
+        deps.sms.send(
+            state["initiator_phone"],
+            next_handoff_summary(days, state["initiator_label"]),
+        )
+        deps.audit.append(
+            family_id=state["family_id"],
+            actor_role=state["initiator_role"],
+            action_type="schedule_query",
+            description="Answered next-handoff query",
+            previous_state_id=None,
+            timestamp=deps.now,
+        )
+        return {**state, "current_step": "completed"}
+
+    start = date.fromisoformat(query["start_date"])
+    end = date.fromisoformat(query["end_date"]) if query["end_date"] else start
 
     days = deps.schedule.custody_between(state["family_id"], start, end)
     deps.sms.send(state["initiator_phone"], summarize_custody(days))
